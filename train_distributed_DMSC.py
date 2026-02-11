@@ -42,6 +42,7 @@ from torch.utils.data.distributed import DistributedSampler
 # from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
 from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
 from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
+from data_augmentation_temporal import expand_samples_with_temporal_history, expand_samples_with_sliding_window, print_augmentation_stats
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -136,6 +137,20 @@ def main():
                        help='Prompt 风格：simple=简洁标签格式（默认），detailed=详细模板，lovink=Lovink风格')
     parser.add_argument('--template_filename', type=str, default=None,
                        help='指定模板文件名（仅当 prompt_style=detailed 时生效）')
+    
+    # 新增：数据扩充参数
+    parser.add_argument('--enable_temporal_augmentation', action='store_true',
+                       help='启用时序数据扩充（基于历史生成多个训练样本）')
+    parser.add_argument('--min_history_length', type=int, default=1,
+                       help='时序扩充的最小历史长度（默认：1，推荐设为1以确保每个样本都有历史）')
+    parser.add_argument('--max_samples_per_user', type=int, default=None,
+                       help='每个用户最多生成的样本数（None表示不限制）')
+    parser.add_argument('--use_sliding_window', action='store_true',
+                       help='使用滑动窗口扩充（而不是完整历史）')
+    parser.add_argument('--window_size', type=int, default=5,
+                       help='滑动窗口大小（默认：5）')
+    parser.add_argument('--window_stride', type=int, default=1,
+                       help='滑动窗口步长（默认：1）')
     
     args = parser.parse_args()
     
@@ -248,6 +263,46 @@ def main():
     all_samples = extract_training_samples(train_data, debug=is_main_process)
     if is_main_process:
         print(f"提取了 {len(all_samples)} 个训练样本")
+    
+    # === 新增：时序数据扩充 ===
+    if args.enable_temporal_augmentation:
+        if is_main_process:
+            print("\n" + "=" * 80)
+            print("启用时序数据扩充")
+            print("=" * 80)
+        
+        if args.use_sliding_window:
+            if is_main_process:
+                print(f"使用滑动窗口扩充策略")
+                print(f"  窗口大小: {args.window_size}")
+                print(f"  滑动步长: {args.window_stride}")
+            
+            all_samples = expand_samples_with_sliding_window(
+                all_samples,
+                window_size=args.window_size,
+                stride=args.window_stride,
+                verbose=is_main_process
+            )
+        else:
+            if is_main_process:
+                print(f"使用完整历史扩充策略")
+                print(f"  最小历史长度: {args.min_history_length}")
+                if args.max_samples_per_user:
+                    print(f"  每用户最大样本数: {args.max_samples_per_user}")
+                else:
+                    print(f"  每用户最大样本数: 不限制")
+            
+            all_samples = expand_samples_with_temporal_history(
+                all_samples,
+                min_history_length=args.min_history_length,
+                max_samples_per_user=args.max_samples_per_user,
+                verbose=is_main_process
+            )
+        
+        if is_main_process:
+            print_augmentation_stats(all_samples)
+            print("=" * 80 + "\n")
+    # === 数据扩充结束 ===
     
     # 添加历史信息
     if use_history:

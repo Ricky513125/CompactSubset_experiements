@@ -1,0 +1,188 @@
+[
+  {
+    "user": {
+      "profile": {
+        "name": "Y"
+      }
+    },
+    "task": {
+      "description": "基于用户在豆瓣上的历史影评数据，模拟该用户的影评风格和行为模式",
+      "task_behavior_collections": [
+        {
+          "type": "movie_review",
+          "type_desc": "豆瓣影评数据",
+          "data": [
+            {
+              "context": [],
+              "continuation": "boring",
+              "continuation_prefix": "钢铁侠1: ",
+              "timestamp": "2010-08-22"
+            },
+            {
+              "context": [],
+              "continuation": "Again！Again！Again！",
+              "continuation_prefix": "复仇者联盟: ",
+              "timestamp": "2012-05-05"
+            },
+            {
+              "context": [],
+              "continuation": "好笑又有启发性，难得的国产电影",
+              "continuation_prefix": "泰囧: ",
+              "timestamp": "2012-12-17"
+            },
+            {
+              "context": [],
+              "continuation": "权相佑纯打酱油的啊。",
+              "continuation_prefix": "十二生肖: ",
+              "timestamp": "2012-12-31"
+            },
+            {
+              "context": [],
+              "continuation": "可能那些没变的桥段体现了星爷的价值观。",
+              "continuation_prefix": "西游降魔篇: ",
+              "timestamp": "2013-02-10"
+            },
+            {
+              "context": [],
+              "continuation": "观后感：跟这个一比 我觉得富贵山鸡图值两星",
+              "continuation_prefix": "小时代1: ",
+              "timestamp": "2013-06-28"
+            },
+            {
+              "context": [],
+              "continuation": "不是很好看。太长了。有点失望",
+              "continuation_prefix": "变形金刚4: ",
+              "timestamp": "2014-06-29"
+            },
+            {
+              "context": [],
+              "continuation": "我把我的第一次未看打一星献给小时代 不谢已反馈豆娘 希望有负星",
+              "continuation_prefix": "小时代3: ",
+              "timestamp": "2014-07-02"
+            },
+            {
+              "context": [],
+              "continuation": "不喜欢片尾的"后来"。就这样戛然而止，后会无期，就不该有"后来"。",
+              "continuation_prefix": "后会无期: ",
+              "timestamp": "2014-07-24"
+            },
+            {
+              "context": [],
+              "continuation": "去给苏有朋捧场的。两个小时剧情太不饱满，演员演技就不说了，反正有槽点。",
+              "continuation_prefix": "左耳: ",
+              "timestamp": "2015-04-26"
+            },
+            {
+              "context": [],
+              "continuation": "为何在无论短评影评基本上都一分的基础上，会得出3.5的此等高分～",
+              "continuation_prefix": "何以笙箫默: ",
+              "timestamp": "2015-05-01"
+            },
+            {
+              "context": [],
+              "continuation": "管它有多少明的暗的故事线，我为红发女巫痴狂。。。yeah~!!!!",
+              "continuation_prefix": "复仇者联盟2: ",
+              "timestamp": "2015-05-08"
+            },
+            {
+              "context": [],
+              "continuation": "画面是很棒的，怎么就突然结束了呢！！！！！",
+              "continuation_prefix": "大圣归来: ",
+              "timestamp": "2015-07-10"
+            },
+            {
+              "context": [],
+              "continuation": "喜欢何老师，喜欢何老师主持的快乐大本营，他的电影也会支持。也许它的剧情一般，但让我看得很感动、很开心，纯净而美好，比起那些充斥着乱七八糟剧情的电影要好太多。",
+              "continuation_prefix": "栀子花开: ",
+              "timestamp": "2015-07-13"
+            },
+            {
+              "context": [],
+              "continuation": "就是个屎，看赵又廷就知道这片演技是个什么鬼乐，完全和原著没关系",
+              "continuation_prefix": "九层妖塔: ",
+              "timestamp": "2015-09-30"
+            },
+            {
+              "context": [],
+              "continuation": "秒杀同期电影轻松松",
+              "continuation_prefix": "夏洛特烦恼: ",
+              "timestamp": "2015-10-01"
+            },
+            {
+              "context": [],
+              "continuation": "坤哥舒淇黄渤铁三角神还原了小说里的摸金校尉，夏雨的大金牙爆表了，唯一败笔在AB演技烂，违和，奈何有大腿，硬被塞进来",
+              "continuation_prefix": "寻龙诀: ",
+              "timestamp": "2015-12-18"
+            },
+            {
+              "context": [],
+              "continuation": "功夫之后再无周星驰。",
+              "continuation_prefix": "美人鱼: ",
+              "timestamp": "2016-02-09"
+            },
+            {
+              "context": [],
+              "continuation": "还不赶紧结婚？！（最近超萌耳廓狐没想到这片里还真有耳廓狐！！！）",
+              "continuation_prefix": "疯狂动物城: ",
+              "timestamp": "2016-03-04"
+            },
+            {
+              "context": [],
+              "continuation": "前面铺垫时间太长了",
+              "continuation_prefix": "美国队长3: ",
+              "timestamp": "2016-05-06"
+            },
+            {
+              "context": [],
+              "continuation": "可惜了楸，等了一年就等到这么一个女主，白莲婊？绿茶婊？2颗星是给画面音乐，还是外包韩国日本的白白糟蹋了山海经与逍遥游",
+              "continuation_prefix": "大鱼海棠: ",
+              "timestamp": "2016-07-08"
+            },
+            {
+              "context": [],
+              "continuation": "部分情节弱智得想骂街。。",
+              "continuation_prefix": "釜山行: ",
+              "timestamp": "2016-09-12"
+            },
+            {
+              "context": [],
+              "continuation": "最后一秒跟他们两一起哭出来",
+              "continuation_prefix": "你的名字: ",
+              "timestamp": "2016-09-19"
+            },
+            {
+              "context": [],
+              "continuation": "艹 傻逼",
+              "continuation_prefix": "湄公河行动: ",
+              "timestamp": "2016-10-01"
+            },
+            {
+              "context": [],
+              "continuation": "家明只是一个介质",
+              "continuation_prefix": "七月与安生: ",
+              "timestamp": "2016-10-29"
+            },
+            {
+              "context": [],
+              "continuation": "景甜演技提升很大，看到一群吃瓜群众吐槽，理解不了。这是一部中美合拍的电影，不能拿以往的审美去评判。实在无聊不要去电影院啊，三十块票，你赔本了嘛？",
+              "continuation_prefix": "长城: ",
+              "timestamp": "2016-12-17"
+            },
+            {
+              "context": [],
+              "continuation": "太美了。明白梦想与现实的区别，对现实妥协是为了对梦想不妥协。",
+              "continuation_prefix": "爱乐之城: ",
+              "timestamp": "2016-12-30"
+            },
+            {
+              "context": [],
+              "continuation": "一星給林更新小新的腦殘粉 劇情亂七八糟造型亂七八糟 為什麼不能給負星啊 再這樣下去星爺的口碑要被消耗完了",
+              "continuation_prefix": "西游伏妖篇: ",
+              "timestamp": "2017-01-28"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

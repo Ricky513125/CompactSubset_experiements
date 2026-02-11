@@ -184,65 +184,65 @@ def extract_training_samples(train_data: List[Dict[str, Any]], debug: bool = Fal
                 
                 # --- 简化逻辑：只预测 continuation，不进行数据扩充 ---
                 # 只创建一个样本：context -> continuation
-                if continuation and len(full_dialogue) > 0:
-                    # 确保 context 的最后一轮是 user (对话者)
-                    # 这样符合 LLM "user输入 -> assistant生成" 的标准逻辑
-                    if full_dialogue[-1]['role'] == 'user':
-                        samples.append({
-                            'context': full_dialogue,           # 包含 role 和 content 的列表
-                            'next_question': continuation,      # 目标文本（continuation）
-                            'user_profile': user_profile,       # profile部分（用于向后兼容）
-                            'user_object': user_object,         # 完整的user对象（包含personality，用于人格映射）
-                            'task_description': task_description,
-                            'user_hash': user_hash
-                        })
+                # if continuation and len(full_dialogue) > 0:
+                #     # 确保 context 的最后一轮是 user (对话者)
+                #     # 这样符合 LLM "user输入 -> assistant生成" 的标准逻辑
+                #     if full_dialogue[-1]['role'] == 'user':
+                #         samples.append({
+                #             'context': full_dialogue,           # 包含 role 和 content 的列表
+                #             'next_question': continuation,      # 目标文本（continuation）
+                #             'user_profile': user_profile,       # profile部分（用于向后兼容）
+                #             'user_object': user_object,         # 完整的user对象（包含personality，用于人格映射）
+                #             'task_description': task_description,
+                #             'user_hash': user_hash
+                #         })
     
                 # 构建完整对话列表用于切分
-                # # 注意：我们要预测的是用户说话的内容
-                # # 用户在数据中的 source 可能是 "user"，也可能是在 profile 里显示的 name
-                # full_dialogue = []
-                # for turn in context:
-                #     source = str(turn.get('source', '')).strip()
-                #     # 判断是否是目标用户（我们要预测的人）说的话：
-                #     # - source 是 "user"（通用标识）
-                #     # - source 是 profile 中的 name（如 "HP", "AH" 等）
-                #     is_target_user = False
-                #     if source.lower() == 'user':
-                #         is_target_user = True
-                #     elif user_name and source == user_name:
-                #         is_target_user = True
+                # 注意：我们要预测的是用户说话的内容
+                # 用户在数据中的 source 可能是 "user"，也可能是在 profile 里显示的 name
+                full_dialogue = []
+                for turn in context:
+                    source = str(turn.get('source', '')).strip()
+                    # 判断是否是目标用户（我们要预测的人）说的话：
+                    # - source 是 "user"（通用标识）
+                    # - source 是 profile 中的 name（如 "HP", "AH" 等）
+                    is_target_user = False
+                    if source.lower() == 'user':
+                        is_target_user = True
+                    elif user_name and source == user_name:
+                        is_target_user = True
                     
-                #     # 关键修正：目标用户的话应该映射为assistant（模型要学习生成的）
-                #     # 对话者的话应该映射为user（输入/上下文）
-                #     role = "assistant" if is_target_user else "user"
-                #     full_dialogue.append({"role": role, "content": turn.get('content', '')})
+                    # 关键修正：目标用户的话应该映射为assistant（模型要学习生成的）
+                    # 对话者的话应该映射为user（输入/上下文）
+                    role = "assistant" if is_target_user else "user"
+                    full_dialogue.append({"role": role, "content": turn.get('content', '')})
                 
-                # # 将 continuation 也加入队列（作为最后一个样本的目标）
-                # # continuation 是目标用户的回复，所以应该是 assistant
-                # if continuation:
-                #     full_dialogue.append({"role": "assistant", "content": continuation})
+                # 将 continuation 也加入队列（作为最后一个样本的目标）
+                # continuation 是目标用户的回复，所以应该是 assistant
+                if continuation:
+                    full_dialogue.append({"role": "assistant", "content": continuation})
 
-                # # --- 样本切分逻辑 ---
-                # # 我们寻找每一个目标用户（assistant）回复的位置，将其作为 target，之前的作为 context
-                # for i in range(len(full_dialogue)):
-                #     if full_dialogue[i]['role'] == 'assistant':
-                #         # 只有当目标用户说话时，我们才可能创建一个样本
-                #         # context 是 0 到 i-1 轮
-                #         input_context = full_dialogue[:i]
-                #         target_text = full_dialogue[i]['content']
+                # --- 样本切分逻辑 ---
+                # 我们寻找每一个目标用户（assistant）回复的位置，将其作为 target，之前的作为 context
+                for i in range(len(full_dialogue)):
+                    if full_dialogue[i]['role'] == 'assistant':
+                        # 只有当目标用户说话时，我们才可能创建一个样本
+                        # context 是 0 到 i-1 轮
+                        input_context = full_dialogue[:i]
+                        target_text = full_dialogue[i]['content']
 
-                #         if target_text and len(input_context) > 0:
-                #             # 确保 context 的最后一轮是 user (对话者)
-                #             # 这样符合 LLM "user输入 -> assistant生成" 的标准逻辑
-                #             if input_context[-1]['role'] == 'user':
-                #                 samples.append({
-                #                     'context': input_context,     # 包含 role 和 content 的列表
-                #                     'next_question': target_text, # 目标文本
-                #                     'user_profile': user_profile,  # profile部分（用于向后兼容）
-                #                     'user_object': user_object,   # 完整的user对象（包含personality，用于人格映射）
-                #                     'task_description': task_description,
-                #                     'user_hash': user_hash
-                #                 })
+                        if target_text and len(input_context) > 0:
+                            # 确保 context 的最后一轮是 user (对话者)
+                            # 这样符合 LLM "user输入 -> assistant生成" 的标准逻辑
+                            if input_context[-1]['role'] == 'user':
+                                samples.append({
+                                    'context': input_context,     # 包含 role 和 content 的列表
+                                    'next_question': target_text, # 目标文本
+                                    'user_profile': user_profile,  # profile部分（用于向后兼容）
+                                    'user_object': user_object,   # 完整的user对象（包含personality，用于人格映射）
+                                    'task_description': task_description,
+                                    'user_hash': user_hash
+                                })
     # --- 新增：保存样本逻辑 ---
     # 定义保存路径（自动处理 ~ 符号）
     save_dir = os.path.expanduser("~/parallel-post-train/ablation/sample_results")
@@ -718,9 +718,12 @@ def build_simple_training_prompt(
         
         if profile_tags:
             system_parts.append("[USER_PROFILE]\n" + "\n".join(profile_tags))
-    
+    English_flag = False
     # 2. TASK 部分 - 任务描述
     task_text = task_description if task_description else "基于用户在 Lovink 对话中的历史数据，模拟该用户的对话行为模式"
+    if task_text == "基于角色在电影中的历史对话数据，模拟该角色的对话风格和行为模式": # Chameleons
+        English_flag = True 
+        task_text = "Given the historical dialogue of a character in a movie, model the character’s speaking style and behavioral patterns, and predict the next utterance the user would produce."
     system_parts.append(f"[TASK]\n{task_text}")
     
     # 3. RECENT_DIALOGUE 部分 - 动态调整长度
@@ -809,7 +812,10 @@ def build_simple_training_prompt(
         system_parts.append("\n".join(dialogue_parts))
     
     # 4. 预测指令
-    system_parts.append("\n预测用户的下一条消息:")
+    if English_flag:
+        system_parts.append("\nPredict the user's next message:")
+    else:
+        system_parts.append("\n预测用户的下一条消息:")
     
     # 组合成 system message
     system_content = "\n\n".join(system_parts)
