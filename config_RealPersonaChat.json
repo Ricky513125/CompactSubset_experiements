@@ -1,22 +1,21 @@
 {
   "model": {
-    "name": "Qwen3-4B-Instruct-2507",
-    "path": "/mnt/parallel/models/Qwen3-4B-Instruct",
-    "hf_model_name": "Qwen/Qwen3-4B-Instruct-2507",
+    "name": "Qwen3-8B",
+    "path": "/mnt/parallel/models/Qwen3-8B",
+    "hf_model_name": "Qwen/Qwen3-8B",
     "checkpoint_dir": "/mnt/parallel/checkpoints"
   },
   "data": {
-    "train_path": "/mnt/parallel/GIDigitalTwinBench/IdealSelf/RealPersonaChat/train.json",
-    "test_path": "/mnt/parallel/GIDigitalTwinBench/IdealSelf/RealPersonaChat/test.json"
+    "train_path": "/mnt/parallel/GIDigitalTwinBench/IdealSelf/RealPersonaChat/train.json"
   },
   "training": {
-    "batch_size": 1,
-    "eval_batch_size": 1,
-    "gradient_accumulation_steps": 32,
+    "batch_size": 8,
+    "eval_batch_size": 8,
+    "gradient_accumulation_steps": 16,
     "learning_rate": 1e-05,
     "weight_decay": 0.1,
     "warmup_steps": 100,
-    "max_length": 16384,
+    "max_length": 2048,
     "max_context_turns": 15,
     "logging_steps": 10,
     "save_steps": 500,

@@ -37,11 +37,14 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 
-# 注释掉父目录路径，统一使用当前目录（prompt_improvement/Lovink/）下的文件
-# sys.path.insert(0, str(Path(__file__).parent.parent))
-# from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
-from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
-from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
+# 使用问卷专用的数据加载器
+from data_loader_lovink_questionnaire import (
+    load_questionnaire_data as load_train_data,
+    extract_questionnaire_samples as extract_training_samples,
+    add_questionnaire_history_to_samples as add_history_to_samples,
+    split_train_val
+)
+from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -106,9 +109,9 @@ def main():
                        default='config_LovinkQuestionnaire.json',
                        help='配置文件路径')
     parser.add_argument('--ablation_config', type=str, required=True,
-                       choices=['profile_and_history_and_context', 'profile_and_history', 'profile_and_context', 
+                       choices=['profile_and_history_and_context', 'profile_and_history', 'profile_and_context',
                                'history_and_context', 'profile_only', 'history_only', 'context_only'],
-                       help='消融实验配置')
+                       help='消融实验配置（问卷数据）')
     parser.add_argument('--val_ratio', type=float, default=0.1,
                        help='验证集比例')
     parser.add_argument('--max_epochs', type=int, default=50,
@@ -136,6 +139,19 @@ def main():
                        help='Prompt 风格：simple=简洁标签格式（默认），detailed=详细模板，lovink=Lovink风格')
     parser.add_argument('--template_filename', type=str, default=None,
                        help='指定模板文件名（仅当 prompt_style=detailed 时生效）')
+    
+    # 新增：历史策略参数（问卷数据专用）
+    parser.add_argument('--history_strategy', type=str, default='all_previous',
+                       choices=['all_previous', 'fixed_ratio', 'fixed_count', 'random', 'none'],
+                       help='历史划分策略：all_previous=所有之前的问答（默认），fixed_ratio=固定比例，fixed_count=固定数量，random=随机选择，none=不使用历史')
+    parser.add_argument('--history_ratio', type=float, default=0.5,
+                       help='历史比例（当history_strategy=fixed_ratio时使用，默认0.5）')
+    parser.add_argument('--fixed_history_count', type=int, default=None,
+                       help='固定历史数量（当history_strategy=fixed_count时使用）')
+    parser.add_argument('--use_position_split', action='store_true',
+                       help='使用基于位置的训练/测试划分（前N%问题训练，后面问题测试）')
+    parser.add_argument('--train_question_ratio', type=float, default=0.7,
+                       help='训练集问题比例（当use_position_split=True时使用，默认0.7）')
     
     args = parser.parse_args()
     
@@ -230,6 +246,7 @@ def main():
         print("=" * 80)
         print(f"消融实验（FlashAttn2 + 动态Padding）: {config_name}")
         print(f"使用配置: profile={use_profile}, history={use_history}, context={use_context}")
+        print(f"数据类型: Lovink问卷问答")
         print(f"FlashAttention 2: {'启用' if use_flash_attn else '禁用'}")
         print("=" * 80)
     
@@ -249,14 +266,43 @@ def main():
     if is_main_process:
         print(f"提取了 {len(all_samples)} 个训练样本")
     
-    # 添加历史信息
+    # 划分训练集和验证集（根据策略选择）
+    if args.use_position_split:
+        # 使用基于位置的划分
+        if is_main_process:
+            print(f"使用基于位置的划分: 前{args.train_question_ratio*100:.0f}%问题训练，后面问题测试")
+        from data_loader_lovink_questionnaire import create_train_test_split_by_question_position
+        train_samples, val_samples = create_train_test_split_by_question_position(
+            all_samples, 
+            train_question_ratio=args.train_question_ratio
+        )
+    else:
+        # 使用随机划分
+        train_samples, val_samples = split_train_val(all_samples, args.val_ratio)
+    
+    # 添加历史信息（使用指定的策略）
     if use_history:
         if is_main_process:
-            print("添加历史信息...")
-        all_samples = add_history_to_samples(all_samples, all_samples)
-    
-    # 划分训练集和验证集
-    train_samples, val_samples = split_train_val(all_samples, args.val_ratio)
+            print(f"添加历史信息（策略: {args.history_strategy}）...")
+            if args.history_strategy == 'fixed_ratio':
+                print(f"  历史比例: {args.history_ratio}")
+            elif args.history_strategy == 'fixed_count':
+                print(f"  固定历史数量: {args.fixed_history_count}")
+        
+        train_samples = add_history_to_samples(
+            train_samples,
+            history_strategy=args.history_strategy,
+            history_ratio=args.history_ratio,
+            fixed_history_count=args.fixed_history_count
+        )
+        
+        if val_samples:
+            val_samples = add_history_to_samples(
+                val_samples,
+                history_strategy=args.history_strategy,
+                history_ratio=args.history_ratio,
+                fixed_history_count=args.fixed_history_count
+            )
     if is_main_process:
         print(f"训练集: {len(train_samples)} 个样本")
         print(f"验证集: {len(val_samples)} 个样本")

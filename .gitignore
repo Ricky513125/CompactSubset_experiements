@@ -3,3 +3,6 @@ leaderboards/
 outputs/
 submit/ 
 wandb/
+logs/
+history_logs/
+history_cache/

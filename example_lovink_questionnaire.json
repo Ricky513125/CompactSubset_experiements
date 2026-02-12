@@ -1,0 +1,56 @@
+[
+  {
+    "user": {
+      "profile": {
+        "name": "user_78901533"
+      }
+    },
+    "task": {
+      "description": "基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式",
+      "task_behavior_collections": [
+        {
+          "type": "dialogue",
+          "type_desc": "Lovink 问卷回答数据",
+          "data": [
+            {
+              "context": [
+                {
+                  "source": "questionnaire",
+                  "content": "安全的生活环境对我来说很重要。我避免任何会危及自身安全的事情"
+                }
+              ],
+              "continuation": "同意"
+            },
+            {
+              "context": [
+                {
+                  "source": "questionnaire",
+                  "content": "如果要把你的人生拍成电影，但导演坚持必须加一个"剧情大反转"，你希望反转发生在什么时候？会是什么？"
+                }
+              ],
+              "continuation": "亲密关系复合"
+            },
+            {
+              "context": [
+                {
+                  "source": "questionnaire",
+                  "content": "我通常会礼貌的等待别人把话说完"
+                }
+              ],
+              "continuation": "有点同意"
+            },
+            {
+              "context": [
+                {
+                  "source": "questionnaire",
+                  "content": "你们约好参加社区10K公益跑，赛前伴侣脚踝扭伤。你会怎么安排？\nA. 继续你的参赛，但是抽出时间陪伴与照顾TA\nB. 按计划参赛，赛后再照顾TA\nC. 让TA自行处理伤情，你专注自己的训练\nD. 两人都不参加，把时间留给休息"
+                }
+              ],
+              "continuation": "继续你的参赛，但是抽出时间陪伴与照顾TA"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

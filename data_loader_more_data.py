@@ -719,12 +719,49 @@ def build_simple_training_prompt(
         if profile_tags:
             system_parts.append("[USER_PROFILE]\n" + "\n".join(profile_tags))
     English_flag = False
+    Japanese_flag = False
     # 2. TASK 部分 - 任务描述
     task_text = task_description if task_description else "基于用户在 Lovink 对话中的历史数据，模拟该用户的对话行为模式"
     if task_text == "基于角色在电影中的历史对话数据，模拟该角色的对话风格和行为模式": # Chameleons
         English_flag = True 
-        task_text = "Given the historical dialogue of a character in a movie, model the character’s speaking style and behavioral patterns, and predict the next utterance the user would produce."
+        task_text = "Given the historical dialogue of a character in a movie, model the character's speaking style and behavioral patterns, and predict the next utterance the user would produce."
+    elif task_text == "基于用户在 Reddit 上的历史对话数据，模拟该用户的对话风格和行为模式":
+        English_flag = True 
+        task_text = "Given the historical dialogue of a user on Reddit, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce."
+    elif task_text == "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式":
+        Japanese_flag = True 
+        task_text = "RealPersonaChatデータセットにおけるユーザーの過去の会話データに基づき、当該ユーザーの会話行動パターンをシミュレートする："
     system_parts.append(f"[TASK]\n{task_text}")
+    
+    # 2.5. HISTORY 部分 - 历史信息（在 TASK 和 RECENT_DIALOGUE 之间）
+    if use_history and history and len(history) > 0:
+        history_parts = ["[HISTORY]"]
+        # 限制历史条目数量，避免过长
+        max_history_items = 15
+        history_to_use = history[:max_history_items] if len(history) > max_history_items else history
+        
+        for i, item in enumerate(history_to_use, 1):
+            # 支持多种格式的历史
+            if isinstance(item, str):
+                content = item
+            elif isinstance(item, dict):
+                content = item.get('next_question', '') or item.get('content', '') or item.get('continuation', '')
+            else:
+                content = str(item)
+            
+            if content:
+                # 截断过长的历史项
+                if len(content) > 200:
+                    content = content[:197] + "..."
+                history_parts.append(f"{i}. {content}")
+        
+        if len(history_parts) > 1:  # 确保有实际内容
+            if task_text and "MovieLens" in task_text:
+                # MovieLens 特殊标题
+                system_parts.append("[HISTORICAL_RATINGS]")
+                system_parts.append("\n".join(history_parts[1:]))  # 跳过 [HISTORY] 标题
+            else:
+                system_parts.append("\n".join(history_parts))
     
     # 3. RECENT_DIALOGUE 部分 - 动态调整长度
     recent_context = context.copy() if use_context and context else []
@@ -814,8 +851,17 @@ def build_simple_training_prompt(
     # 4. 预测指令
     if English_flag:
         system_parts.append("\nPredict the user's next message:")
+    elif Japanese_flag:
+        system_parts.append("\nユーザーの次のメッセージを予測する：")
     else:
-        system_parts.append("\n预测用户的下一条消息:")
+        if task_text == "基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式":
+            system_parts.append("\n预测用户针对该问题的回复：")
+        elif task_text and "MovieLens" in task_text:
+            system_parts.append("\n预测用户对该电影的评分：")
+        elif task_text and "Reddit" in task_text:
+            system_parts.append("\nPredict the user's response to the comment:")
+        else:
+            system_parts.append("\n预测用户的下一条消息:")
     
     # 组合成 system message
     system_content = "\n\n".join(system_parts)

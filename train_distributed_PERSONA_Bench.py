@@ -41,7 +41,8 @@ from torch.utils.data.distributed import DistributedSampler
 # sys.path.insert(0, str(Path(__file__).parent.parent))
 # from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
 from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
-from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
+from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val
+from data_loader_persona_bench_history import add_history_to_samples_persona_bench
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -249,11 +250,11 @@ def main():
     if is_main_process:
         print(f"提取了 {len(all_samples)} 个训练样本")
     
-    # 添加历史信息
+    # 添加历史信息 - 使用时序历史（只包含当前样本之前的回复）
     if use_history:
         if is_main_process:
-            print("添加历史信息...")
-        all_samples = add_history_to_samples(all_samples, all_samples)
+            print("添加时序历史信息（只使用当前样本之前的回复）...")
+        all_samples = add_history_to_samples_persona_bench(all_samples)
     
     # 划分训练集和验证集
     train_samples, val_samples = split_train_val(all_samples, args.val_ratio)

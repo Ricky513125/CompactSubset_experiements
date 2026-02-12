@@ -40,8 +40,9 @@ from torch.utils.data.distributed import DistributedSampler
 # 注释掉父目录路径，统一使用当前目录（prompt_improvement/Lovink/）下的文件
 # sys.path.insert(0, str(Path(__file__).parent.parent))
 # from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
-from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
-from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
+from data_loader_more_data import load_train_data, get_user_only_history # 新版本 简短的训练prompt
+from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val
+from data_loader_movielens_history import extract_movielens_samples, add_history_to_samples_movielens
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -136,6 +137,15 @@ def main():
                        help='Prompt 风格：simple=简洁标签格式（默认），detailed=详细模板，lovink=Lovink风格')
     parser.add_argument('--template_filename', type=str, default=None,
                        help='指定模板文件名（仅当 prompt_style=detailed 时生效）')
+    
+    # 新增：历史划分策略参数
+    parser.add_argument('--history_strategy', type=str, default='all_previous',
+                       choices=['all_previous', 'fixed_ratio', 'fixed_count', 'random', 'none'],
+                       help='历史划分策略：all_previous=所有之前的评分（默认），fixed_ratio=固定比例，fixed_count=固定数量，random=随机选择，none=不使用历史')
+    parser.add_argument('--history_ratio', type=float, default=0.5,
+                       help='历史比例（当history_strategy=fixed_ratio或random时使用，默认0.5）')
+    parser.add_argument('--fixed_history_count', type=int, default=None,
+                       help='固定历史数量（当history_strategy=fixed_count时使用）')
     
     args = parser.parse_args()
     
@@ -244,16 +254,26 @@ def main():
         cleanup_distributed()
         return
     
-    # 提取训练样本
-    all_samples = extract_training_samples(train_data, debug=is_main_process)
+    # 提取训练样本 - 使用 MovieLens 专用提取函数
+    all_samples = extract_movielens_samples(train_data, debug=is_main_process)
     if is_main_process:
         print(f"提取了 {len(all_samples)} 个训练样本")
     
     # 添加历史信息
     if use_history:
         if is_main_process:
-            print("添加历史信息...")
-        all_samples = add_history_to_samples(all_samples, all_samples)
+            print(f"添加历史信息（策略: {args.history_strategy}）...")
+            if args.history_strategy == 'fixed_ratio' or args.history_strategy == 'random':
+                print(f"  历史比例: {args.history_ratio}")
+            elif args.history_strategy == 'fixed_count':
+                print(f"  固定历史数量: {args.fixed_history_count}")
+        
+        all_samples = add_history_to_samples_movielens(
+            all_samples,
+            history_strategy=args.history_strategy,
+            history_ratio=args.history_ratio,
+            fixed_history_count=args.fixed_history_count
+        )
     
     # 划分训练集和验证集
     train_samples, val_samples = split_train_val(all_samples, args.val_ratio)
