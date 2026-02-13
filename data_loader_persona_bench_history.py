@@ -17,6 +17,10 @@ def add_history_to_samples_persona_bench(
     - 为每个回复创建训练样本
     - 历史 = 该用户之前的所有回复（不包括当前）
     
+    特殊处理：
+    - 如果样本包含 _other_samples_for_history 字段（来自采样），则将这些样本也添加到历史中
+    - 这样可以确保：选2个样本作为预测，其他98个样本全部作为历史
+    
     数据格式:
     {
         "context": [
@@ -46,20 +50,26 @@ def add_history_to_samples_persona_bench(
     
     for user_hash, user_sample_list in user_samples.items():
         for idx, sample in enumerate(user_sample_list):
-            # 获取该样本之前的所有回复作为历史
+            # 获取该样本之前的所有回复作为历史（时序历史）
             previous_samples = user_sample_list[:idx]
             
-            # 从之前的样本中提取用户的回复内容
+            # 检查是否有 _other_samples_for_history 字段（来自采样）
+            other_samples = sample.pop('_other_samples_for_history', [])
+            
+            # 合并两种历史来源：时序历史 + 其他未被选中的样本
+            all_history_samples = previous_samples + other_samples
+            
+            # 从历史样本中提取用户的回复内容
             history = []
-            for prev_sample in previous_samples:
+            for hist_sample in all_history_samples:
                 # PERSONA_Bench 中，continuation 就是用户的回复
-                continuation = prev_sample.get('next_question', '').strip()
+                continuation = hist_sample.get('next_question', '').strip()
                 if not continuation:
-                    continuation = prev_sample.get('continuation', '').strip()
+                    continuation = hist_sample.get('continuation', '').strip()
                 
                 if continuation:
                     # 可以选择包含时间戳信息
-                    timestamp = prev_sample.get('timestamp', '')
+                    timestamp = hist_sample.get('timestamp', '')
                     if timestamp:
                         history.append(f"[{timestamp}] {continuation}")
                     else:

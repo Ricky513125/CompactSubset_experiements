@@ -1,31 +1,4 @@
-"""
-分布式训练脚本（FlashAttention 2 + 动态Batch Padding优化版）
 
-关键优化：
-1. FlashAttention 2：更快的注意力机制，显存效率更高
-2. 动态Padding：不再将batch内所有样本padding到固定max_length
-3. 梯度检查点：降低显存占用
-4. 分布式训练：支持多GPU并行
-
-FlashAttention 2 优势：
-- 速度提升 2-4x（相比标准attention）
-- 显存占用降低 10-20%
-- 支持更长的序列长度
-- 完全保持数学等价性
-
-环境要求：
-- torch >= 2.0.0
-- flash-attn >= 2.0.0 (需要手动安装: pip install flash-attn --no-build-isolation)
-- CUDA >= 11.6
-- GPU: A100/H100 等支持 FlashAttention 的显卡
-
-使用方法：
-# 8卡训练
-torchrun --nproc_per_node=8 version2_flash_attn/train_distributed_flashattn2.py \
-    --config config_realpersonachat.json \
-    --ablation_config profile_and_context \
-    --output_dir outputs/0130_RealPersonaChat_profile_and_context_flashattn2_8gpu
-"""
 import json
 import argparse
 import os
@@ -40,8 +13,8 @@ from torch.utils.data.distributed import DistributedSampler
 # 注释掉父目录路径，统一使用当前目录（prompt_improvement/Lovink/）下的文件
 # sys.path.insert(0, str(Path(__file__).parent.parent))
 # from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
-from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
-from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val
+from data_loader import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
+from train_with_dynamic_padding import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val
 from data_loader_persona_bench_history import add_history_to_samples_persona_bench
 from transformers import (
     AutoTokenizer,
@@ -52,6 +25,58 @@ from transformers import (
 )
 from typing import List, Dict, Any, Optional
 import torch.nn as nn
+
+
+def sample_per_user(samples: List[Dict], max_samples_per_user: Optional[int], seed: int = 42) -> List[Dict]:
+    """
+    对每个用户的样本进行采样，并将未选中的样本保存为历史信息
+    
+    策略：
+    - 随机选择 max_samples_per_user 个样本作为预测目标
+    - 将该用户的其他所有样本保存到 _other_samples_for_history 字段
+    - 后续的 add_history_to_samples 函数将使用这些样本作为历史
+    
+    Args:
+        samples: 训练样本列表
+        max_samples_per_user: 每个用户最多采样的样本数，None表示不采样
+        seed: 随机种子
+    
+    Returns:
+        采样后的样本列表（包含 _other_samples_for_history 字段）
+    """
+    if max_samples_per_user is None:
+        return samples
+    
+    # 按用户分组
+    user_samples = {}
+    for sample in samples:
+        user_hash = sample.get('user_hash', 'unknown')
+        if user_hash not in user_samples:
+            user_samples[user_hash] = []
+        user_samples[user_hash].append(sample)
+    
+    # 对每个用户采样
+    random.seed(seed)
+    sampled_samples = []
+    for user_hash, user_sample_list in user_samples.items():
+        if len(user_sample_list) <= max_samples_per_user:
+            # 样本数不足，全部使用，不需要额外的历史
+            sampled_samples.extend(user_sample_list)
+        else:
+            # 随机选择指定数量的样本作为预测目标
+            sampled = random.sample(user_sample_list, max_samples_per_user)
+            
+            # 找出未被选中的样本（作为额外的历史）
+            sampled_set = set(id(s) for s in sampled)
+            other_samples = [s for s in user_sample_list if id(s) not in sampled_set]
+            
+            # 将未被选中的样本保存到每个被选中样本的 _other_samples_for_history 字段
+            for sample in sampled:
+                sample['_other_samples_for_history'] = other_samples
+            
+            sampled_samples.extend(sampled)
+    
+    return sampled_samples
 
 
 def check_flash_attention_support():
@@ -137,6 +162,12 @@ def main():
                        help='Prompt 风格：simple=简洁标签格式（默认），detailed=详细模板，lovink=Lovink风格')
     parser.add_argument('--template_filename', type=str, default=None,
                        help='指定模板文件名（仅当 prompt_style=detailed 时生效）')
+    
+    # 新增：用户采样参数
+    parser.add_argument('--max_samples_per_user', type=int, default=None,
+                       help='每个用户最多采样的样本数（None表示使用所有样本）')
+    parser.add_argument('--sample_seed', type=int, default=42,
+                       help='采样随机种子（默认：42）')
     
     args = parser.parse_args()
     
@@ -250,6 +281,14 @@ def main():
     if is_main_process:
         print(f"提取了 {len(all_samples)} 个训练样本")
     
+    # 用户采样（如果指定）
+    if args.max_samples_per_user is not None:
+        if is_main_process:
+            print(f"对每个用户采样最多 {args.max_samples_per_user} 个样本（种子={args.sample_seed}）...")
+        all_samples = sample_per_user(all_samples, args.max_samples_per_user, args.sample_seed)
+        if is_main_process:
+            print(f"采样后剩余 {len(all_samples)} 个样本")
+    
     # 添加历史信息 - 使用时序历史（只包含当前样本之前的回复）
     if use_history:
         if is_main_process:
@@ -303,6 +342,91 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
+    # 📊 数据长度分析（在加载模型之前）
+    train_config = config.get('training', {})
+    if is_main_process:
+        print("\n" + "=" * 80)
+        print("📊 分析训练数据长度分布...")
+        print("=" * 80)
+        
+        try:
+            # 使用简单的 prompt builder（与 DynamicPaddingDataset 一致）
+            from data_loader import build_simple_training_prompt
+            
+            # 采样分析（不超过500个样本）
+            sample_size = min(500, len(all_samples))
+            analysis_samples = random.sample(all_samples, sample_size) if len(all_samples) > sample_size else all_samples
+            
+            lengths = []
+            for sample in analysis_samples:
+                try:
+                    # 构建完整的prompt
+                    messages, target_answer = build_simple_training_prompt(
+                        sample,
+                        use_profile=use_profile,
+                        use_history=use_history,
+                        use_context=use_context
+                    )
+                    
+                    # 转换为文本
+                    full_text = tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True
+                    ) + target_answer
+                    
+                    # 编码获取长度
+                    token_ids = tokenizer.encode(full_text, add_special_tokens=True)
+                    lengths.append(len(token_ids))
+                except Exception as e:
+                    continue
+            
+            if lengths:
+                import numpy as np
+                lengths_array = np.array(lengths)
+                
+                max_length = int(np.max(lengths_array))
+                min_length = int(np.min(lengths_array))
+                mean_length = float(np.mean(lengths_array))
+                median_length = float(np.median(lengths_array))
+                percentile_90 = float(np.percentile(lengths_array, 90))
+                percentile_95 = float(np.percentile(lengths_array, 95))
+                percentile_99 = float(np.percentile(lengths_array, 99))
+                
+                print(f"分析了 {len(lengths)}/{len(all_samples)} 个样本:")
+                print(f"  最小长度: {min_length}")
+                print(f"  最大长度: {max_length}")
+                print(f"  平均长度: {mean_length:.0f}")
+                print(f"  中位数长度: {median_length:.0f}")
+                print(f"  90分位数长度: {percentile_90:.0f}")
+                print(f"  95分位数长度: {percentile_95:.0f}")
+                print(f"  99分位数长度: {percentile_99:.0f}")
+                
+                # 与配置的max_length对比
+                configured_max_length = train_config.get('max_length', 4096)
+                print(f"\n配置的 max_length: {configured_max_length}")
+                
+                exceeds_count = np.sum(lengths_array > configured_max_length)
+                print(f"超过 max_length 的样本数: {exceeds_count} ({exceeds_count/len(lengths)*100:.1f}%)")
+                
+                # 给出建议
+                print(f"\n建议:")
+                if percentile_95 > configured_max_length:
+                    print(f"  警告: 95%的数据超过配置的max_length，可能导致大量截断")
+                    print(f"  建议调整 max_length 至少到 {int(percentile_95)}")
+                elif percentile_95 < configured_max_length * 0.7:
+                    print(f"  提示: 95%的数据长度远小于max_length，可以考虑降低以节省显存")
+                else:
+                    print(f"  ✓ max_length 设置合理")
+                print("=" * 80 + "\n")
+            else:
+                print("警告: 无法分析样本长度")
+                print("=" * 80 + "\n")
+        
+        except Exception as e:
+            print(f"数据长度分析失败: {e}")
+            print("=" * 80 + "\n")
+    
     # 加载模型到指定GPU（使用FlashAttention 2）
     model_kwargs = {
         'torch_dtype': torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
@@ -339,7 +463,6 @@ def main():
     model = model.to(local_rank)
     
     # 创建数据集（使用动态Padding版本）
-    train_config = config.get('training', {})
     if is_main_process:
         print("创建训练数据集（动态Padding模式）...")
     
