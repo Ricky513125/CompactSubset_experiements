@@ -137,6 +137,12 @@ def main():
     parser.add_argument('--template_filename', type=str, default=None,
                        help='指定模板文件名（仅当 prompt_style=detailed 时生效）')
     
+    # 新增：用户采样参数
+    parser.add_argument('--max_samples_per_user', type=int, default=None,
+                       help='每个用户最多采样的样本数（None表示使用所有样本）')
+    parser.add_argument('--sample_seed', type=int, default=42,
+                       help='采样随机种子（默认：42）')
+    
     args = parser.parse_args()
     
     # 初始化分布式环境

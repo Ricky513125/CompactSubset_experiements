@@ -358,14 +358,19 @@ def main():
             analysis_samples = random.sample(all_samples, sample_size) if len(all_samples) > sample_size else all_samples
             
             lengths = []
+            failed_count = 0
             for sample in analysis_samples:
                 try:
                     # 构建完整的prompt
                     messages, target_answer = build_simple_training_prompt(
-                        sample,
+                        context=sample.get('context', []),
+                        next_question=sample.get('next_question', ''),
+                        user_profile=sample.get('user_profile') if use_profile else None,
+                        history=sample.get('history', []) if use_history else None,
                         use_profile=use_profile,
                         use_history=use_history,
-                        use_context=use_context
+                        use_context=use_context,
+                        user_hash=sample.get('user_hash')
                     )
                     
                     # 转换为文本
@@ -379,6 +384,9 @@ def main():
                     token_ids = tokenizer.encode(full_text, add_special_tokens=True)
                     lengths.append(len(token_ids))
                 except Exception as e:
+                    failed_count += 1
+                    if failed_count <= 3:  # 只打印前3个错误
+                        print(f"  样本分析失败: {type(e).__name__}: {str(e)[:100]}")
                     continue
             
             if lengths:
@@ -420,7 +428,7 @@ def main():
                     print(f"  ✓ max_length 设置合理")
                 print("=" * 80 + "\n")
             else:
-                print("警告: 无法分析样本长度")
+                print(f"警告: 无法分析样本长度 (成功: 0/{sample_size}, 失败: {failed_count})")
                 print("=" * 80 + "\n")
         
         except Exception as e:
