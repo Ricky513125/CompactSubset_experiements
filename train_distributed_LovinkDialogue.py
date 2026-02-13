@@ -1381,6 +1381,123 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
+    # ✅ 先获取 train_config（在数据分析之前需要）
+    train_config = config.get('training', {})
+    
+    # ============================================================================
+    # 计算训练集的最大输入长度（在主进程中）
+    # ============================================================================
+    if is_main_process:
+        print("\n" + "="*80)
+        print("📊 分析训练数据长度分布")
+        print("="*80)
+        
+        # 导入prompt构建函数
+        if args.prompt_style == 'simple':
+            from data_loader import build_simple_training_prompt
+        else:
+            from prompt_builder_LovinkDialogue import build_training_prompt as build_simple_training_prompt
+        
+        # 采样部分数据进行分析（避免太慢）
+        sample_size = min(100, len(train_samples))
+        sampled_indices = random.sample(range(len(train_samples)), sample_size)
+        
+        lengths = []
+        max_length_sample = None
+        max_length = 0
+        
+        print(f"正在分析 {sample_size} 个样本...")
+        for idx in sampled_indices:
+            sample = train_samples[idx]
+            
+            # 构建prompt
+            try:
+                messages, target_answer = build_simple_training_prompt(
+                    context=sample['context'],
+                    next_question=sample['next_question'],
+                    user_profile=sample.get('user_profile') if use_profile else None,
+                    task_description=sample.get('task_description'),
+                    history=sample.get('history', []) if use_history else [],
+                    use_profile=use_profile,
+                    use_history=use_history,
+                    use_context=use_context,
+                    tokenizer=tokenizer,
+                    max_length=train_config.get('max_length', 4096),
+                    min_target_tokens=64,
+                    user_hash=sample.get('user_hash')
+                )
+                
+                # 生成完整文本
+                full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+                generation_suffix = "<|im_start|>assistant\n"
+                full_prompt = full_prompt.strip() + generation_suffix
+                im_end_token = "<|im_end|>"
+                full_text = full_prompt + target_answer + im_end_token
+                
+                # 计算长度
+                token_ids = tokenizer.encode(full_text, add_special_tokens=False)
+                length = len(token_ids)
+                lengths.append(length)
+                
+                # 记录最长的样本
+                if length > max_length:
+                    max_length = length
+                    max_length_sample = {
+                        'idx': idx,
+                        'length': length,
+                        'user_hash': sample.get('user_hash', 'unknown'),
+                        'context_turns': len(sample.get('context', [])),
+                        'history_items': len(sample.get('history', []))
+                    }
+            except Exception as e:
+                print(f"  警告: 样本 {idx} 处理失败: {e}")
+                continue
+        
+        if lengths:
+            import numpy as np
+            lengths_array = np.array(lengths)
+            
+            print(f"\n训练数据长度统计（基于 {len(lengths)} 个样本）:")
+            print(f"  最小长度: {lengths_array.min()}")
+            print(f"  最大长度: {lengths_array.max()}")
+            print(f"  平均长度: {lengths_array.mean():.1f}")
+            print(f"  中位数长度: {np.median(lengths_array):.1f}")
+            print(f"  标准差: {lengths_array.std():.1f}")
+            print(f"\n长度分布:")
+            print(f"  < 1024 tokens:  {(lengths_array < 1024).sum()} ({(lengths_array < 1024).sum()/len(lengths)*100:.1f}%)")
+            print(f"  < 2048 tokens:  {(lengths_array < 2048).sum()} ({(lengths_array < 2048).sum()/len(lengths)*100:.1f}%)")
+            print(f"  < 4096 tokens:  {(lengths_array < 4096).sum()} ({(lengths_array < 4096).sum()/len(lengths)*100:.1f}%)")
+            print(f"  < 8192 tokens:  {(lengths_array < 8192).sum()} ({(lengths_array < 8192).sum()/len(lengths)*100:.1f}%)")
+            print(f"  >= 8192 tokens: {(lengths_array >= 8192).sum()} ({(lengths_array >= 8192).sum()/len(lengths)*100:.1f}%)")
+            
+            if max_length_sample:
+                print(f"\n最长样本信息:")
+                print(f"  索引: {max_length_sample['idx']}")
+                print(f"  长度: {max_length_sample['length']} tokens")
+                print(f"  用户哈希: {max_length_sample['user_hash']}")
+                print(f"  上下文轮次: {max_length_sample['context_turns']}")
+                print(f"  历史条目数: {max_length_sample['history_items']}")
+            
+            # 根据数据分布给出配置建议
+            configured_max_length = train_config.get('max_length', 4096)
+            percentile_95 = np.percentile(lengths_array, 95)
+            print(f"\n配置建议:")
+            print(f"  当前配置的 max_length: {configured_max_length}")
+            print(f"  95分位数长度: {percentile_95:.0f}")
+            if percentile_95 > configured_max_length:
+                print(f"  ⚠️  警告: 95%的数据超过配置的max_length，可能导致大量截断")
+                print(f"  建议调整 max_length 至少到 {int(percentile_95)}")
+            elif percentile_95 < configured_max_length * 0.7:
+                print(f"  ℹ️  提示: 95%的数据长度远小于max_length，可以考虑降低以节省显存")
+            else:
+                print(f"  ✓ max_length 设置合理")
+        
+        print("="*80 + "\n")
+    
+    # 等待主进程完成分析
+    if world_size > 1:
+        dist.barrier()
+    
     # 加载模型到指定GPU（使用FlashAttention 2）
     model_kwargs = {
         'torch_dtype': torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
@@ -1417,7 +1534,7 @@ def main():
     model = model.to(local_rank)
     
     # 创建数据集（使用动态Padding版本）
-    train_config = config.get('training', {})
+    # train_config 已在前面定义（数据分析阶段）
     if is_main_process:
         print("创建训练数据集（动态Padding模式）...")
     

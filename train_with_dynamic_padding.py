@@ -103,10 +103,7 @@ class DynamicPaddingDataset(Dataset):
         
         # ✅ 根据 use_detailed_template 选择 prompt 构建函数
         if use_detailed_template:
-            # 使用详细模板（标准 markdown 格式，使用 {VAR_NAME} 占位符）
-            from prompt_builder_LovinkDialogue import build_training_prompt
-            print("使用详细 Prompt 模板 (prompt_builder_LovinkDialogue)")
-            self.build_training_prompt = build_training_prompt
+            
         else:
             # 使用简短模板
             # 优先尝试从 data_loader.py 导入（新版本，只预测 continuation）

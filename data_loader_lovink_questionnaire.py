@@ -117,6 +117,9 @@ def add_questionnaire_history_to_samples(
     """
     为问卷样本添加历史回答信息（支持多种策略）
     
+    特殊处理：如果样本包含 '_other_samples_for_history' 字段，
+    则使用这些样本作为历史（由 sample_per_user 函数设置）
+    
     Args:
         samples: 样本列表
         history_strategy: 历史划分策略
@@ -125,6 +128,7 @@ def add_questionnaire_history_to_samples(
             - 'fixed_count': 使用固定数量的问答作为历史
             - 'random': 随机选择一部分问答作为历史
             - 'none': 不使用历史（每个问题独立）
+            - 'use_other_samples': 使用 _other_samples_for_history 中的样本
         history_ratio: 当strategy='fixed_ratio'时，历史所占比例
         fixed_history_count: 当strategy='fixed_count'时，历史问答数量
         seed: 随机种子
@@ -134,7 +138,45 @@ def add_questionnaire_history_to_samples(
     """
     random.seed(seed)
     
-    # 按用户分组
+    # ✅ 首先检查是否有预设的历史样本（来自 sample_per_user）
+    has_preset_history = any('_other_samples_for_history' in s for s in samples)
+    
+    if has_preset_history:
+        # ✅ 使用预设的历史样本
+        for sample in samples:
+            history = []
+            other_samples = sample.get('_other_samples_for_history', [])
+            
+            if other_samples:
+                # 根据 history_strategy 决定如何使用这些样本
+                if history_strategy == 'random':
+                    # 随机选择部分
+                    num_to_select = max(1, int(len(other_samples) * history_ratio))
+                    selected = random.sample(other_samples, min(num_to_select, len(other_samples)))
+                elif history_strategy == 'fixed_count' and fixed_history_count:
+                    # 固定数量
+                    selected = random.sample(other_samples, min(fixed_history_count, len(other_samples)))
+                else:
+                    # 默认：使用所有其他样本作为历史
+                    selected = other_samples
+                
+                # 构建历史文本
+                for hist_sample in selected:
+                    question = ''
+                    if hist_sample.get('context'):
+                        question = hist_sample['context'][0]['content']
+                    answer = hist_sample.get('next_question', '')
+                    history.append(f"问题：{question}\n回答：{answer}")
+            
+            sample['history'] = history
+            sample['history_strategy'] = f'preset_{history_strategy}'
+            # 清理临时字段
+            if '_other_samples_for_history' in sample:
+                del sample['_other_samples_for_history']
+        
+        return samples
+    
+    # 按用户分组（原有逻辑）
     user_samples = {}
     for sample in samples:
         user_hash = sample['user_hash']
@@ -357,6 +399,98 @@ def format_questionnaire_prompt(
             parts.append("\n请给出你的回答：")
     
     return "\n".join(parts)
+
+
+def build_simple_training_prompt(
+    context: List[Dict[str, str]],
+    next_question: str,
+    user_profile: dict = None,
+    task_description: str = None,
+    history: List[str] = None,
+    use_profile: bool = True,
+    use_history: bool = True,
+    use_context: bool = True,
+    tokenizer = None,
+    max_length: int = 8192,
+    min_target_tokens: int = 64,
+    user_hash: str = None
+) -> Tuple[List[Dict[str, str]], str]:
+    """
+    构建简短的训练 prompt（兼容 data_loader 的接口）
+    专门用于 LovinkQuestionnaire 数据
+    
+    Args:
+        context: 对话上下文（问卷问题）
+        next_question: 目标回复（用户的答案）
+        user_profile: 用户画像
+        task_description: 任务描述
+        history: 历史对话
+        use_profile: 是否使用用户画像
+        use_history: 是否使用历史
+        use_context: 是否使用上下文
+        tokenizer: tokenizer 实例
+        max_length: 最大序列长度
+        min_target_tokens: 为 target 预留的最小 token 数
+        user_hash: 用户哈希
+    
+    Returns:
+        (messages, target_answer): messages 用于模型输入，target_answer 是预测目标
+    """
+    messages = []
+    system_parts = []
+    
+    # 1. USER_HASH 部分
+    if user_hash:
+        system_parts.append(f"[USER_HASH={user_hash}]")
+    
+    # 2. TASK 部分
+    if task_description:
+        system_parts.append(f"[TASK]\n{task_description}")
+    else:
+        system_parts.append("[TASK]\n基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式")
+    
+    # 3. HISTORY 部分（包含问题+回答的完整格式）
+    if use_history and history and len(history) > 0:
+        history_parts = ["[HISTORY]"]
+        max_history_items = 15
+        history_to_use = history[:max_history_items] if len(history) > max_history_items else history
+        
+        for i, item in enumerate(history_to_use, 1):
+            if isinstance(item, str):
+                # ✅ 保留完整的"问题：XXX\n回答：YYY"格式
+                # 如果已经是格式化的，直接使用
+                if "问题：" in item and "回答：" in item:
+                    history_parts.append(f"{i}. {item}")
+                else:
+                    # 如果只有答案，也保留
+                    history_parts.append(f"{i}. {item}")
+            else:
+                content = str(item)
+                if len(content) > 200:
+                    content = content[:197] + "..."
+                history_parts.append(f"{i}. {content}")
+        
+        if len(history_parts) > 1:
+            system_parts.append("\n".join(history_parts))
+    
+    # 4. 当前问题（从 context 中提取并显示）
+    current_question = None
+    if use_context and context and len(context) > 0:
+        current_question = context[0].get('content', '')
+        if current_question:
+            system_parts.append(f"[CURRENT_QUESTION]\n{current_question}")
+    
+    # 5. 预测指令
+    system_parts.append("\n预测用户针对该问题的回复：")
+    
+    # 组合成 system message
+    system_content = "\n\n".join(system_parts)
+    messages.append({"role": "system", "content": system_content})
+    
+    # target_answer 就是用户的回答
+    target_answer = next_question
+    
+    return messages, target_answer
 
 
 if __name__ == '__main__':

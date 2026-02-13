@@ -65,7 +65,7 @@ bash run_dmsc_with_augmentation.sh
 torchrun \
     --nproc_per_node=8 \
     --master_port=29500 \
-    train_distributed_MovieReview.py \
+    train_distributed_DMSC.py \
     --config config_DMSC.json \
     --deepspeed ds_config_zero2.json \
     --ablation_config history_only \

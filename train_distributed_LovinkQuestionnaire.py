@@ -1,31 +1,3 @@
-"""
-分布式训练脚本（FlashAttention 2 + 动态Batch Padding优化版）
-
-关键优化：
-1. FlashAttention 2：更快的注意力机制，显存效率更高
-2. 动态Padding：不再将batch内所有样本padding到固定max_length
-3. 梯度检查点：降低显存占用
-4. 分布式训练：支持多GPU并行
-
-FlashAttention 2 优势：
-- 速度提升 2-4x（相比标准attention）
-- 显存占用降低 10-20%
-- 支持更长的序列长度
-- 完全保持数学等价性
-
-环境要求：
-- torch >= 2.0.0
-- flash-attn >= 2.0.0 (需要手动安装: pip install flash-attn --no-build-isolation)
-- CUDA >= 11.6
-- GPU: A100/H100 等支持 FlashAttention 的显卡
-
-使用方法：
-# 8卡训练
-torchrun --nproc_per_node=8 version2_flash_attn/train_distributed_flashattn2.py \
-    --config config_realpersonachat.json \
-    --ablation_config profile_and_context \
-    --output_dir outputs/0130_RealPersonaChat_profile_and_context_flashattn2_8gpu
-"""
 import json
 import argparse
 import os
@@ -40,8 +12,18 @@ from torch.utils.data.distributed import DistributedSampler
 # 注释掉父目录路径，统一使用当前目录（prompt_improvement/Lovink/）下的文件
 # sys.path.insert(0, str(Path(__file__).parent.parent))
 # from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
-from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
-from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
+# from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
+
+# ✅ 使用专门的 LovinkQuestionnaire 数据加载器
+from data_loader_lovink_questionnaire import (
+    load_questionnaire_data as load_train_data,
+    extract_questionnaire_samples as extract_training_samples,
+    add_questionnaire_history_to_samples,
+    split_train_val
+)
+
+# 从通用模块导入 DynamicPaddingDataset 和 collate_fn
+from train_with_dynamic_padding import DynamicPaddingDataset, dynamic_padding_collate_fn
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -106,15 +88,18 @@ def sample_per_user(
     random_seed: int = 42
 ) -> List[Dict[str, Any]]:
     """
-    对每个用户的样本进行随机采样
+    对每个用户的样本进行采样
+     针对问卷数据的特殊处理：
+    - 随机选择 max_samples_per_user 条作为预测目标
+    - 其他所有问答都作为历史信息
     
     Args:
         all_samples: 所有训练样本
-        max_samples_per_user: 每个用户最多保留多少个样本
+        max_samples_per_user: 每个用户最多保留多少个样本作为预测目标
         random_seed: 随机种子（保证可复现）
     
     Returns:
-        采样后的样本列表
+        采样后的样本列表（每个样本都包含该用户的其他问答作为历史）
     """
     random.seed(random_seed)
     
@@ -128,24 +113,38 @@ def sample_per_user(
     
     # 对每个用户的样本进行采样
     sampled_samples = []
+    total_history_items = 0
+    
     for user_hash, samples in user_samples.items():
         if len(samples) <= max_samples_per_user:
-            # 样本数不超过限制，全部保留
+            # 样本数不超过限制，全部保留（但不添加历史）
             sampled_samples.extend(samples)
         else:
-            # 随机采样
-            sampled = random.sample(samples, max_samples_per_user)
-            sampled_samples.extend(sampled)
+            # ✅ 随机选择 max_samples_per_user 个作为预测目标
+            sampled_indices = random.sample(range(len(samples)), max_samples_per_user)
+            sampled_indices_set = set(sampled_indices)
+            
+            # ✅ 构建历史：所有未被选中的问答
+            history_samples = [samples[i] for i in range(len(samples)) if i not in sampled_indices_set]
+            total_history_items += len(history_samples)
+            
+            # ✅ 为每个被选中的样本添加历史标记
+            for idx in sampled_indices:
+                selected_sample = samples[idx]
+                # 将历史样本的信息存储起来，后续会被 add_questionnaire_history_to_samples 处理
+                selected_sample['_other_samples_for_history'] = history_samples
+                sampled_samples.append(selected_sample)
     
     # 打印统计信息
     print(f"\n{'='*50}")
-    print(f"样本采样统计:")
+    print(f"问卷样本采样统计（预测目标 vs 历史）:")
     print(f"  原始样本数: {len(all_samples)}")
     print(f"  用户数: {len(user_samples)}")
-    print(f"  每用户最大样本数: {max_samples_per_user}")
-    print(f"  采样后样本数: {len(sampled_samples)}")
+    print(f"  每用户选为预测目标的样本数: {max_samples_per_user}")
+    print(f"  采样后样本数（预测目标）: {len(sampled_samples)}")
+    print(f"  其他样本作为历史: {len(all_samples) - len(sampled_samples)}")
+    print(f"  平均每个样本的历史条目: {total_history_items / len(sampled_samples) if sampled_samples else 0:.1f}")
     print(f"  采样比例: {len(sampled_samples) / len(all_samples) * 100:.1f}%")
-    print(f"  预期训练时间缩短: {len(all_samples) / len(sampled_samples):.1f}x")
     print(f"{'='*50}\n")
     
     return sampled_samples
@@ -195,9 +194,9 @@ def main():
                        help='采样随机种子（默认：42，保证可复现）')
     
     # 新增：历史策略参数
-    parser.add_argument('--history_strategy', type=str, default='recent',
-                       choices=['recent', 'random', 'relevant'],
-                       help='历史选择策略：recent=最近的历史（默认），random=随机选择，relevant=相关性选择')
+    parser.add_argument('--history_strategy', type=str, default='random',
+                       choices=['recent', 'random', 'relevant', 'all_previous', 'fixed_ratio', 'fixed_count', 'none'],
+                       help='历史选择策略：recent=最近的历史，random=随机选择（默认），all_previous=所有之前的，fixed_ratio=固定比例，fixed_count=固定数量，none=不使用历史')
     parser.add_argument('--history_ratio', type=float, default=1.0,
                        help='历史使用比例（0.0-1.0），用于控制使用多少比例的历史记录')
     
@@ -327,11 +326,16 @@ def main():
     if use_history:
         if is_main_process:
             print("添加历史信息...")
-            if hasattr(args, 'history_strategy') and args.history_strategy:
-                print(f"  历史策略: {args.history_strategy}")
-            if hasattr(args, 'history_ratio') and args.history_ratio < 1.0:
-                print(f"  历史比例: {args.history_ratio:.1%}")
-        all_samples = add_history_to_samples(all_samples, all_samples)
+            print(f"  历史策略: {args.history_strategy}")
+            print(f"  历史比例: {args.history_ratio:.1%}")
+        
+        # 使用专门的问卷历史添加函数
+        all_samples = add_questionnaire_history_to_samples(
+            samples=all_samples,
+            history_strategy=args.history_strategy,
+            history_ratio=args.history_ratio,
+            seed=args.sample_seed
+        )
     
     # 划分训练集和验证集
     train_samples, val_samples = split_train_val(all_samples, args.val_ratio)
@@ -380,6 +384,121 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
+    # ✅ 先获取 train_config（在数据分析之前需要）
+    train_config = config.get('training', {})
+    
+    # ============================================================================
+    # 计算训练集的最大输入长度（在主进程中）
+    # ============================================================================
+    if is_main_process:
+        print("\n" + "="*80)
+        print("📊 分析训练数据长度分布")
+        print("="*80)
+        
+        # 导入prompt构建函数
+        # ✅ 使用专门的问卷 prompt 构建函数
+        from data_loader_lovink_questionnaire import build_simple_training_prompt
+        
+        # 采样部分数据进行分析（避免太慢）
+        sample_size = min(100, len(train_samples))
+        sampled_indices = random.sample(range(len(train_samples)), sample_size)
+        
+        lengths = []
+        max_length_sample = None
+        max_length = 0
+        
+        print(f"正在分析 {sample_size} 个样本...")
+        for idx in sampled_indices:
+            sample = train_samples[idx]
+            
+            # 构建prompt
+            try:
+                messages, target_answer = build_simple_training_prompt(
+                    context=sample['context'],
+                    next_question=sample['next_question'],
+                    user_profile=sample.get('user_profile') if use_profile else None,
+                    task_description=sample.get('task_description'),
+                    history=sample.get('history', []) if use_history else [],
+                    use_profile=use_profile,
+                    use_history=use_history,
+                    use_context=use_context,
+                    tokenizer=tokenizer,
+                    max_length=train_config.get('max_length', 4096),
+                    min_target_tokens=64,
+                    user_hash=sample.get('user_hash')
+                )
+                
+                # 生成完整文本
+                full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+                generation_suffix = "<|im_start|>assistant\n"
+                full_prompt = full_prompt.strip() + generation_suffix
+                im_end_token = "<|im_end|>"
+                full_text = full_prompt + target_answer + im_end_token
+                
+                # 计算长度
+                token_ids = tokenizer.encode(full_text, add_special_tokens=False)
+                length = len(token_ids)
+                lengths.append(length)
+                
+                # 记录最长的样本
+                if length > max_length:
+                    max_length = length
+                    max_length_sample = {
+                        'idx': idx,
+                        'length': length,
+                        'user_hash': sample.get('user_hash', 'unknown'),
+                        'context_turns': len(sample.get('context', [])),
+                        'history_items': len(sample.get('history', []))
+                    }
+            except Exception as e:
+                print(f"  警告: 样本 {idx} 处理失败: {e}")
+                continue
+        
+        if lengths:
+            import numpy as np
+            lengths_array = np.array(lengths)
+            
+            print(f"\n训练数据长度统计（基于 {len(lengths)} 个样本）:")
+            print(f"  最小长度: {lengths_array.min()}")
+            print(f"  最大长度: {lengths_array.max()}")
+            print(f"  平均长度: {lengths_array.mean():.1f}")
+            print(f"  中位数长度: {np.median(lengths_array):.1f}")
+            print(f"  标准差: {lengths_array.std():.1f}")
+            print(f"\n长度分布:")
+            print(f"  < 1024 tokens:  {(lengths_array < 1024).sum()} ({(lengths_array < 1024).sum()/len(lengths)*100:.1f}%)")
+            print(f"  < 2048 tokens:  {(lengths_array < 2048).sum()} ({(lengths_array < 2048).sum()/len(lengths)*100:.1f}%)")
+            print(f"  < 4096 tokens:  {(lengths_array < 4096).sum()} ({(lengths_array < 4096).sum()/len(lengths)*100:.1f}%)")
+            print(f"  < 8192 tokens:  {(lengths_array < 8192).sum()} ({(lengths_array < 8192).sum()/len(lengths)*100:.1f}%)")
+            print(f"  >= 8192 tokens: {(lengths_array >= 8192).sum()} ({(lengths_array >= 8192).sum()/len(lengths)*100:.1f}%)")
+            
+            if max_length_sample:
+                print(f"\n最长样本信息:")
+                print(f"  索引: {max_length_sample['idx']}")
+                print(f"  长度: {max_length_sample['length']} tokens")
+                print(f"  用户哈希: {max_length_sample['user_hash']}")
+                print(f"  上下文轮次: {max_length_sample['context_turns']}")
+                print(f"  历史条目数: {max_length_sample['history_items']}")
+            
+            # 根据数据分布给出配置建议
+            configured_max_length = train_config.get('max_length', 4096)
+            percentile_95 = np.percentile(lengths_array, 95)
+            print(f"\n配置建议:")
+            print(f"  当前配置的 max_length: {configured_max_length}")
+            print(f"  95分位数长度: {percentile_95:.0f}")
+            if percentile_95 > configured_max_length:
+                print(f"  ⚠️  警告: 95%的数据超过配置的max_length，可能导致大量截断")
+                print(f"  建议调整 max_length 至少到 {int(percentile_95)}")
+            elif percentile_95 < configured_max_length * 0.7:
+                print(f"  ℹ️  提示: 95%的数据长度远小于max_length，可以考虑降低以节省显存")
+            else:
+                print(f"  ✓ max_length 设置合理")
+        
+        print("="*80 + "\n")
+    
+    # 等待主进程完成分析
+    if world_size > 1:
+        dist.barrier()
+    
     # 加载模型到指定GPU（使用FlashAttention 2）
     model_kwargs = {
         'torch_dtype': torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
@@ -416,7 +535,7 @@ def main():
     model = model.to(local_rank)
     
     # 创建数据集（使用动态Padding版本）
-    train_config = config.get('training', {})
+    # train_config 已在前面定义（数据分析阶段）
     if is_main_process:
         print("创建训练数据集（动态Padding模式）...")
     
