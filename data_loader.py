@@ -196,24 +196,24 @@ def extract_training_samples(train_data: List[Dict[str, Any]], debug: bool = Fal
                 if len(full_dialogue) > 0 and full_dialogue[-1]['role'] == 'user':
                     # 确保 context 的最后一轮是 user (对话者)
                     # 这样符合 LLM "user输入 -> assistant生成" 的标准逻辑
-                    samples.append({
-                        'context': full_dialogue,           # 包含 role 和 content 的列表
-                        'next_question': continuation,      # 目标文本（continuation）
+                        samples.append({
+                            'context': full_dialogue,           # 包含 role 和 content 的列表
+                            'next_question': continuation,      # 目标文本（continuation）
                         'user_profile': user_profile,       # profile部分
                         'user_object': user_object,         # 完整的user对象（包含personality）
-                        'task_description': task_description,
-                        'user_hash': user_hash
-                    })
+                            'task_description': task_description,
+                            'user_hash': user_hash
+                        })
                 elif len(full_dialogue) == 0:
                     # 如果没有 context，直接预测 continuation（针对首次发言）
-                    samples.append({
+                                samples.append({
                         'context': [],
                         'next_question': continuation,
                         'user_profile': user_profile,
                         'user_object': user_object,
-                        'task_description': task_description,
-                        'user_hash': user_hash
-                    })
+                                    'task_description': task_description,
+                                    'user_hash': user_hash
+                                })
     # --- 新增：保存样本逻辑 ---
     # 定义保存路径（自动处理 ~ 符号）
     save_dir = os.path.expanduser("~/parallel-post-train/ablation/sample_results")

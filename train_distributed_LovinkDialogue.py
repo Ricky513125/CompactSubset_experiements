@@ -40,7 +40,9 @@ from torch.utils.data.distributed import DistributedSampler
 # 注释掉父目录路径，统一使用当前目录（prompt_improvement/Lovink/）下的文件
 # sys.path.insert(0, str(Path(__file__).parent.parent))
 # from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
-from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
+# from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt，但会进行数据扩充
+from data_loader import load_train_data, extract_training_samples, get_user_only_history # 🔥 使用不扩充版本
+from sample_per_user import sample_per_user  # 新增：用户采样
 from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
 from transformers import (
     AutoTokenizer,
@@ -136,6 +138,12 @@ def main():
                        help='Prompt 风格：simple=简洁标签格式（默认），detailed=详细模板，lovink=Lovink风格')
     parser.add_argument('--template_filename', type=str, default=None,
                        help='指定模板文件名（仅当 prompt_style=detailed 时生效）')
+    
+    # 新增：每用户采样参数
+    parser.add_argument('--max_samples_per_user', type=int, default=None,
+                       help='每个用户最多保留多少个样本（用于减少训练数据量）')
+    parser.add_argument('--sample_seed', type=int, default=42,
+                       help='采样随机种子（默认：42，保证可复现）')
     
     args = parser.parse_args()
     
@@ -248,6 +256,17 @@ def main():
     all_samples = extract_training_samples(train_data, debug=is_main_process)
     if is_main_process:
         print(f"提取了 {len(all_samples)} 个训练样本")
+        print(f"  ✅ 使用 data_loader.py：不进行数据扩充，每个 data_item 生成 1 个样本")
+    
+    # 新增：每用户采样（如果指定了 max_samples_per_user）
+    if args.max_samples_per_user is not None:
+        if is_main_process:
+            print(f"\n对每个用户进行采样（每用户最多 {args.max_samples_per_user} 个样本）...")
+        all_samples = sample_per_user(
+            all_samples,
+            max_samples_per_user=args.max_samples_per_user,
+            random_seed=args.sample_seed
+        )
     
     # 添加历史信息
     if use_history:

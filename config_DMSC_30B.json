@@ -6,8 +6,7 @@
     "checkpoint_dir": "/mnt/parallel/checkpoints"
   },
   "data": {
-    "train_path": "/mnt/parallel/GIDigitalTwinBench/RealSelf/DMSC/train.json",
-    "test_path": "/mnt/parallel/GIDigitalTwinBench/RealSelf/DMSC/test.json"
+    "train_path": "/mnt/parallel/GIDigitalTwinBench/RealSelf/DMSC/train.json"
   },
   "training": {
     "batch_size": 1,
@@ -16,7 +15,7 @@
     "learning_rate": 1e-05,
     "weight_decay": 0.1,
     "warmup_steps": 100,
-    "max_length": 16384,
+    "max_length": 1024,
     "max_context_turns": 15,
     "logging_steps": 10,
     "save_steps": 500,
