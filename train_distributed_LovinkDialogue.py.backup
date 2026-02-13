@@ -40,7 +40,9 @@ from torch.utils.data.distributed import DistributedSampler
 # 注释掉父目录路径，统一使用当前目录（prompt_improvement/Lovink/）下的文件
 # sys.path.insert(0, str(Path(__file__).parent.parent))
 # from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
-from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
+# from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt，但会进行数据扩充
+from data_loader import load_train_data, extract_training_samples, get_user_only_history # 🔥 使用不扩充版本
+from sample_per_user import sample_per_user  # 新增：用户采样
 from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
 from transformers import (
     AutoTokenizer,
@@ -100,61 +102,10 @@ def cleanup_distributed():
         dist.destroy_process_group()
 
 
-def sample_per_user(
-    all_samples: List[Dict[str, Any]],
-    max_samples_per_user: int = 2,
-    random_seed: int = 42
-) -> List[Dict[str, Any]]:
-    """
-    对每个用户的样本进行随机采样
-    
-    Args:
-        all_samples: 所有训练样本
-        max_samples_per_user: 每个用户最多保留多少个样本
-        random_seed: 随机种子（保证可复现）
-    
-    Returns:
-        采样后的样本列表
-    """
-    random.seed(random_seed)
-    
-    # 按用户分组
-    user_samples = {}
-    for sample in all_samples:
-        user_hash = sample.get('user_hash', 'unknown')
-        if user_hash not in user_samples:
-            user_samples[user_hash] = []
-        user_samples[user_hash].append(sample)
-    
-    # 对每个用户的样本进行采样
-    sampled_samples = []
-    for user_hash, samples in user_samples.items():
-        if len(samples) <= max_samples_per_user:
-            # 样本数不超过限制，全部保留
-            sampled_samples.extend(samples)
-        else:
-            # 随机采样
-            sampled = random.sample(samples, max_samples_per_user)
-            sampled_samples.extend(sampled)
-    
-    # 打印统计信息
-    print(f"\n{'='*50}")
-    print(f"样本采样统计:")
-    print(f"  原始样本数: {len(all_samples)}")
-    print(f"  用户数: {len(user_samples)}")
-    print(f"  每用户最大样本数: {max_samples_per_user}")
-    print(f"  采样后样本数: {len(sampled_samples)}")
-    print(f"  采样比例: {len(sampled_samples) / len(all_samples) * 100:.1f}%")
-    print(f"  预期训练时间缩短: {len(all_samples) / len(sampled_samples):.1f}x")
-    print(f"{'='*50}\n")
-    
-    return sampled_samples
-
-
 def main():
-    parser = argparse.ArgumentParser(description='分布式消融实验训练（FlashAttention 2 + 动态Padding）- LovinkQuestionnaire')
+    parser = argparse.ArgumentParser(description='分布式消融实验训练（FlashAttention 2 + 动态Padding）- LovinkDialogue')
     parser.add_argument('--config', type=str,
-                       default='config_LovinkQuestionnaire.json',
+                       default='config_LovinkDialogue.json',
                        help='配置文件路径')
     parser.add_argument('--ablation_config', type=str, required=True,
                        choices=['profile_and_history_and_context', 'profile_and_history', 'profile_and_context', 
@@ -172,8 +123,8 @@ def main():
                        help='模型输出目录')
     parser.add_argument('--local_rank', type=int, default=-1,
                        help='本地进程rank（由 torch.distributed.launch 自动设置）')
-    parser.add_argument('--wandb_project', type=str, default='Qwen3-LovinkQuestionnaire',
-                       help='Weights & Biases项目名称（默认：Qwen3-LovinkQuestionnaire）')
+    parser.add_argument('--wandb_project', type=str, default='Qwen3-LovinkDialogue',
+                       help='Weights & Biases项目名称（默认：Qwen3-LovinkDialogue）')
     parser.add_argument('--wandb_run_name', type=str, default=None,
                        help='Weights & Biases运行名称（默认：自动生成）')
     parser.add_argument('--disable_flash_attn', action='store_true',
@@ -193,13 +144,6 @@ def main():
                        help='每个用户最多保留多少个样本（用于减少训练数据量）')
     parser.add_argument('--sample_seed', type=int, default=42,
                        help='采样随机种子（默认：42，保证可复现）')
-    
-    # 新增：历史策略参数
-    parser.add_argument('--history_strategy', type=str, default='recent',
-                       choices=['recent', 'random', 'relevant'],
-                       help='历史选择策略：recent=最近的历史（默认），random=随机选择，relevant=相关性选择')
-    parser.add_argument('--history_ratio', type=float, default=1.0,
-                       help='历史使用比例（0.0-1.0），用于控制使用多少比例的历史记录')
     
     args = parser.parse_args()
     
@@ -312,6 +256,7 @@ def main():
     all_samples = extract_training_samples(train_data, debug=is_main_process)
     if is_main_process:
         print(f"提取了 {len(all_samples)} 个训练样本")
+        print(f"  ✅ 使用 data_loader.py：不进行数据扩充，每个 data_item 生成 1 个样本")
     
     # 新增：每用户采样（如果指定了 max_samples_per_user）
     if args.max_samples_per_user is not None:
@@ -327,10 +272,6 @@ def main():
     if use_history:
         if is_main_process:
             print("添加历史信息...")
-            if hasattr(args, 'history_strategy') and args.history_strategy:
-                print(f"  历史策略: {args.history_strategy}")
-            if hasattr(args, 'history_ratio') and args.history_ratio < 1.0:
-                print(f"  历史比例: {args.history_ratio:.1%}")
         all_samples = add_history_to_samples(all_samples, all_samples)
     
     # 划分训练集和验证集

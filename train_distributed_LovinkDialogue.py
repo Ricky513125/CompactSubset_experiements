@@ -1,31 +1,4 @@
-"""
-分布式训练脚本（FlashAttention 2 + 动态Batch Padding优化版）
 
-关键优化：
-1. FlashAttention 2：更快的注意力机制，显存效率更高
-2. 动态Padding：不再将batch内所有样本padding到固定max_length
-3. 梯度检查点：降低显存占用
-4. 分布式训练：支持多GPU并行
-
-FlashAttention 2 优势：
-- 速度提升 2-4x（相比标准attention）
-- 显存占用降低 10-20%
-- 支持更长的序列长度
-- 完全保持数学等价性
-
-环境要求：
-- torch >= 2.0.0
-- flash-attn >= 2.0.0 (需要手动安装: pip install flash-attn --no-build-isolation)
-- CUDA >= 11.6
-- GPU: A100/H100 等支持 FlashAttention 的显卡
-
-使用方法：
-# 8卡训练
-torchrun --nproc_per_node=8 version2_flash_attn/train_distributed_flashattn2.py \
-    --config config_realpersonachat.json \
-    --ablation_config profile_and_context \
-    --output_dir outputs/0130_RealPersonaChat_profile_and_context_flashattn2_8gpu
-"""
 import json
 import argparse
 import os
@@ -37,13 +10,11 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 
-# 注释掉父目录路径，统一使用当前目录（prompt_improvement/Lovink/）下的文件
-# sys.path.insert(0, str(Path(__file__).parent.parent))
-# from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
-# from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt，但会进行数据扩充
-from data_loader import load_train_data, extract_training_samples, get_user_only_history # 🔥 使用不扩充版本
-from sample_per_user import sample_per_user  # 新增：用户采样
-from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
+
+
+# ============================================================================
+# 导入必要的库（用于分布式训练）
+# ============================================================================
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -51,8 +22,1097 @@ from transformers import (
     TrainingArguments,
     Trainer
 )
-from typing import List, Dict, Any, Optional
+from torch.utils.data import Dataset
 import torch.nn as nn
+
+
+"""
+数据加载模块 - 简短 Prompt 版本 用于训练，只使用continuation 
+用于加载 LovinkDialogue 数据集，使用简短的 prompt 格式进行训练
+"""
+import json
+import os
+from typing import List, Dict, Any, Optional
+from pathlib import Path
+
+# 导入缓存模块（现在在同一目录下）
+try:
+    from history_cache import save_history, load_history
+except ImportError:
+    # 如果失败，提供一个简单的占位实现
+    print("⚠️ 无法导入 history_cache，使用占位实现")
+    def save_history(user_hash, history):
+        pass
+    def load_history(user_hash):
+        return None
+
+
+def load_json_file(file_path: str) -> Any:
+    """加载 JSON 文件"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def load_train_data(train_path: str) -> List[Dict[str, Any]]:
+    """加载训练数据"""
+    if not os.path.exists(train_path):
+        return []
+    return load_json_file(train_path)
+
+
+def get_user_profile(sample: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    获取完整的用户 profile 信息
+    合并 user.profile (基础信息) 和 user.personality.structured (心理测量数据)
+    
+     重要：保留完整的层级结构，以便 prompt_builder 可以正确提取和填充模板占位符
+    
+    数据结构：
+    {
+      'name': 'xxx',
+      'dimensions': {
+        'BIRI': {
+          'explanation': '...',
+          'dimensions': {
+            'PerspectiveTaking': {'score': 65, 'description': '...'},
+            ...
+          }
+        },
+        ...
+      }
+    }
+    """
+    user = sample.get('user', {})
+    
+    # 获取基础 profile
+    profile = user.get('profile', {})
+    full_profile = dict(profile) if isinstance(profile, dict) else {}
+    
+    # 获取 personality 数据
+    personality = user.get('personality', {})
+    
+    # ✅ 保留完整的 structured 数据结构（不扁平化）
+    structured = personality.get('structured', {})
+    if structured:
+        # 直接保存完整的 structured 数据，包括 score, description, explanation 等
+        full_profile['dimensions'] = structured
+    
+    # ✅ 同时保存 unstructured 文本分析（如果存在）
+    unstructured = personality.get('unstructured', '')
+    if unstructured:
+        full_profile['unstructured'] = unstructured
+    
+    return full_profile if full_profile else None
+
+def get_task_description(sample: Dict[str, Any]) -> str:
+    """获取任务描述"""
+    task = sample.get('task', {})
+    return task.get('description', '')
+
+
+def extract_training_samples(train_data: List[Dict[str, Any]], debug: bool = False) -> List[Dict[str, Any]]:
+    """
+    从训练数据中提取训练样本
+    目标：将'user'设为目标角色，'user_wxxxx'设为对话者(assistant)
+    训练模式：[History...] -> Predict Next 'user' Turn
+    """
+    samples = []
+    target_role_name = "user"  # 我们要预测的那个人的 source 标识符
+
+    if debug:
+        print(f"\n开始提取训练样本，总数据项数: {len(train_data)}\n" + "="*50)
+
+    for item_idx, item in enumerate(train_data):
+        user_hash = item.get('user_hash', '')
+        user_profile = get_user_profile(item)
+        # 获取完整的user对象（包含personality），用于人格映射
+        user_object = item.get('user', {})
+        task_description = get_task_description(item)
+        
+        # 获取用户的 name（用于识别 context 中的用户消息）
+        user_name = None
+        if user_profile and isinstance(user_profile, dict):
+            user_name = str(user_profile.get('name', '')).strip()
+        
+        # 提取对话集合
+        collections = item.get('task', {}).get('task_behavior_collections', [])
+        
+        for collection in collections:
+            for data_item in collection.get('data', []):
+                context = data_item.get('context', [])
+                continuation = data_item.get('continuation', '').strip()
+                
+                # 跳过无效数据
+                if not continuation:
+                    continue
+                
+                # 构建对话上下文（转换为标准格式）
+                full_dialogue = []
+                for turn in context:
+                    source = str(turn.get('source', '')).strip()
+                    content = turn.get('content', '').strip()
+                    
+                    if not content:
+                        continue
+                    
+                    # 判断是否是目标用户（我们要预测的人）说的话
+                    is_target_user = False
+                    if source.lower() == 'user':
+                        is_target_user = True
+                    elif user_name and source == user_name:
+                        is_target_user = True
+                    
+                    # 目标用户的话映射为 assistant（模型要学习生成的）
+                    # 对话者的话映射为 user（输入/上下文）
+                    role = "assistant" if is_target_user else "user"
+                    full_dialogue.append({"role": role, "content": content})
+                
+                # ✅ 简化逻辑：只预测 continuation，不进行数据扩充
+                # 只创建一个样本：context -> continuation
+                if len(full_dialogue) > 0 and full_dialogue[-1]['role'] == 'user':
+                    # 确保 context 的最后一轮是 user (对话者)
+                    # 这样符合 LLM "user输入 -> assistant生成" 的标准逻辑
+                        samples.append({
+                            'context': full_dialogue,           # 包含 role 和 content 的列表
+                            'next_question': continuation,      # 目标文本（continuation）
+                        'user_profile': user_profile,       # profile部分
+                        'user_object': user_object,         # 完整的user对象（包含personality）
+                            'task_description': task_description,
+                            'user_hash': user_hash
+                        })
+                elif len(full_dialogue) == 0:
+                    # 如果没有 context，直接预测 continuation（针对首次发言）
+                                samples.append({
+                        'context': [],
+                        'next_question': continuation,
+                        'user_profile': user_profile,
+                        'user_object': user_object,
+                                    'task_description': task_description,
+                                    'user_hash': user_hash
+                                })
+    # --- 新增：保存样本逻辑 ---
+    # 定义保存路径（自动处理 ~ 符号）
+    save_dir = os.path.expanduser("~/parallel-post-train/ablation/sample_results")
+    os.makedirs(save_dir, exist_ok=True) # 如果目录不存在则创建
+    
+    # 建议保存为 .jsonl 格式，方便大规模数据处理
+    save_path = os.path.join(save_dir, "extracted_samples.jsonl")
+    
+    try:
+        with open(save_path, 'w', encoding='utf-8') as f:
+            for sample in samples:
+                f.write(json.dumps(sample, ensure_ascii=False) + '\n')
+        print(f"✅ 成功将 {len(samples)} 个样本保存至: {save_path}")
+    except Exception as e:
+        print(f"❌ 保存失败: {e}")
+
+        
+    if debug:
+        print(f"提取完成！有效样本总数: {len(samples)}\n" + "="*50)
+    return samples
+
+
+def get_user_only_history(
+    all_samples: List[Dict[str, Any]], 
+    user_hash: str,
+    current_sample: Optional[Dict[str, Any]] = None,
+    current_context: Optional[List[Dict[str, str]]] = None,
+    max_history: int = 15,
+    use_cache: bool = True
+) -> List[str]:
+    """
+    获取用户历史发送的问题列表，用于 Few-shot 或 RAG 增强
+    
+    用户可能在数据中的 source 命名为 "user"，也可能是在 profile 里显示的 name（如 "HP", "AH" 等）
+    需要从 context 中识别用户说的话，以及 next_question
+    
+    Args:
+        all_samples: 所有训练样本
+        user_hash: 用户哈希
+        current_sample: 当前样本（用于排除）
+        current_context: 当前context（用于排除和智能选择）
+        max_history: 最大历史数量
+        use_cache: 是否使用缓存
+    
+    Returns:
+        用户历史对话列表（只包含用户说的话）
+    """
+    # 尝试从缓存加载
+    if use_cache:
+        cached_history = load_history(user_hash)
+        if cached_history is not None:
+            # 如果提供了current_context，需要排除其中的内容并智能选择
+            if current_context:
+                # 提取当前context中用户说的话
+                current_user_contents = set()
+                user_profile = None
+                user_name = None
+                
+                # 获取用户名称
+                for s in all_samples:
+                    if s.get('user_hash') == user_hash:
+                        user_profile = s.get('user_profile')
+                        if user_profile and isinstance(user_profile, dict):
+                            user_name = user_profile.get('name', '').strip()
+                        break
+                
+                # 从current_context中提取预测目标用户（assistant）说的话
+                for turn in current_context:
+                    if isinstance(turn, dict):
+                        # 如果turn是已处理格式（有role字段）
+                        # 注意：预测目标用户的话被映射为assistant（模型要生成的）
+                        if 'role' in turn and turn['role'] == 'assistant':
+                            content = turn.get('content', '').strip()
+                            if content:
+                                current_user_contents.add(content)
+                        # 如果turn是原始格式（有source字段）
+                        elif 'source' in turn:
+                            source = str(turn.get('source', '')).strip()
+                            content = turn.get('content', '').strip()
+                            is_user_turn = (source.lower() == 'user') or (user_name and source == user_name)
+                            if is_user_turn and content:
+                                current_user_contents.add(content)
+                
+                # 从缓存的历史中排除当前context中的内容
+                filtered_history = [h for h in cached_history if h not in current_user_contents]
+                
+                # 如果长度过长，智能选择最相关的
+                if len(filtered_history) > max_history:
+                    return select_relevant_history(filtered_history, current_context, max_history)
+                else:
+                    return filtered_history[:max_history]
+            else:
+                # 没有current_context，直接返回缓存
+                return cached_history[:max_history]
+    
+    # 缓存未命中或未启用缓存，重新计算
+    user_history = []
+    user_profile = None
+    user_name = None
+    
+    # 获取用户 profile 名称
+    for s in all_samples:
+        if s.get('user_hash') == user_hash:
+            user_profile = s.get('user_profile')
+            if user_profile and isinstance(user_profile, dict):
+                user_name = user_profile.get('name', '').strip()
+            break
+    
+    # 提取当前context中预测目标用户（assistant）说的话（用于排除）
+    current_user_contents = set()
+    if current_context:
+        for turn in current_context:
+            if isinstance(turn, dict):
+                # 已处理格式（注意：预测目标用户的话被映射为assistant）
+                if 'role' in turn and turn['role'] == 'assistant':
+                    content = turn.get('content', '').strip()
+                    if content:
+                        current_user_contents.add(content)
+                # 原始格式
+                elif 'source' in turn:
+                    source = str(turn.get('source', '')).strip()
+                    content = turn.get('content', '').strip()
+                    is_user_turn = (source.lower() == 'user') or (user_name and source == user_name)
+                    if is_user_turn and content:
+                        current_user_contents.add(content)
+    
+    # 遍历所有样本
+    for s in all_samples:
+        if s.get('user_hash') != user_hash:
+            continue  # 不同用户，跳过
+        
+        if current_sample is not None and s == current_sample:
+            continue  # 跳过当前 sample
+        
+        context = s.get('context', [])
+        if context:
+            for turn in context:
+                # 处理已处理格式（有role字段）
+                # 注意：预测目标用户的话被映射为assistant（模型要生成的）
+                if isinstance(turn, dict) and 'role' in turn:
+                    if turn['role'] == 'assistant':
+                        content = turn.get('content', '').strip()
+                        if content and content not in current_user_contents:
+                            user_history.append(content)
+                # 处理原始格式（有source字段）
+                elif isinstance(turn, dict) and 'source' in turn:
+                    source = str(turn.get('source', '')).strip()
+                    content = turn.get('content', '').strip()
+                    
+                    is_user_turn = (source.lower() == 'user') or (user_name and source == user_name)
+                    if is_user_turn and content and content not in current_user_contents:
+                        user_history.append(content)
+        
+        # next_question 也算用户说的话（但要排除当前context中的内容）
+        q = s.get('next_question', '').strip()
+        if q and q not in current_user_contents:
+            user_history.append(q)
+    
+    # 去重并限制数量
+    seen = set()
+    unique_history = []
+    for item in reversed(user_history):
+        if item and item not in seen:
+            seen.add(item)
+            unique_history.append(item)
+            if len(unique_history) >= max_history * 2:  # 先收集更多，用于智能选择
+                break
+    
+    result = list(reversed(unique_history))
+    
+    # 如果长度过长，智能选择最相关的
+    if len(result) > max_history and current_context:
+        result = select_relevant_history(result, current_context, max_history)
+    else:
+        result = result[:max_history]
+    
+    # 保存到缓存（如果启用缓存）
+    if use_cache and result:
+        save_history(user_hash, result)
+    
+    return result
+
+
+# ============================================================================
+# 简短 Prompt 构建函数 - 用于训练
+# ============================================================================
+
+def build_simple_training_prompt(
+    context: List[Dict[str, str]],
+    next_question: str,
+    user_profile: Optional[Dict[str, Any]] = None,
+    task_description: Optional[str] = None,
+    history: Optional[List[Any]] = None,
+    use_profile: bool = True,
+    use_history: bool = True,
+    use_context: bool = True,
+    tokenizer = None,
+    max_length: int = 8192,
+    min_target_tokens: int = 64,
+    user_hash: Optional[str] = None  # 新增：用户哈希
+) -> tuple[List[Dict[str, str]], str]:
+    """
+    构建简短的训练 prompt，带动态长度调整
+    
+    格式:
+    [USER_PROFILE]
+    {...}  # JSON 格式的完整 profile（包括心理维度）
+    
+    [TASK]
+    基于用户在 Lovink 对话中的历史数据，模拟该用户的对话行为模式
+    
+    [RECENT_DIALOGUE]
+    User: ...
+    Assistant: ...
+    
+    Predict the user's next message:
+    
+    Args:
+        context: 对话上下文
+        next_question: 目标回复（用户下一句话）
+        user_profile: 用户画像（包括 dimensions 心理维度数据）
+        task_description: 任务描述（可选，默认使用 Lovink 标准描述）
+        history: 历史对话（可选）
+        use_profile: 是否使用用户画像
+        use_history: 是否使用历史
+        use_context: 是否使用上下文
+        tokenizer: tokenizer 实例（用于精确长度计算和动态截断）
+        max_length: 最大序列长度（默认 8192）
+        min_target_tokens: 为 target 预留的最小 token 数（默认 64）
+    
+    Returns:
+        (messages, target_answer): messages 用于模型输入，target_answer 是预测目标
+        
+    特性:
+        - ✅ 动态调整 context 长度，确保不超过 max_length
+        - ✅ 优先保留最近的对话轮次
+        - ✅ 预留足够空间给 target 生成（min_target_tokens + 实际 target 长度）
+        - ✅ 如果发生截断，会在对话开头添加省略提示
+    """
+    messages = []
+    
+    # 构建 system message（简短格式）
+    system_parts = []
+    
+    # 0. USER_HASH 部分 - 始终包含（无论 use_profile 是否启用）
+    if user_hash:
+        system_parts.append(f"[USER_HASH={user_hash}]")
+    
+    # 1. USER_PROFILE 部分 - 使用方括号标签格式（由 use_profile 控制）
+    if use_profile and user_profile:
+        profile_tags = []
+        
+        # 基础信息标签
+        if 'name' in user_profile and user_profile['name']:
+            profile_tags.append(f"[USER_NAME={user_profile['name']}]")
+        if 'age' in user_profile and user_profile['age']:
+            profile_tags.append(f"[USER_AGE={user_profile['age']}]")
+        if 'gender' in user_profile and user_profile['gender']:
+            profile_tags.append(f"[USER_GENDER={user_profile['gender']}]")
+        
+        # 心理维度标签（dimensions）
+        # 支持两种格式：
+        # 1. 扁平化格式: {"Ocean.Extraversion": 90, ...}
+        # 2. 嵌套格式: {"BIRI": {"dimensions": {"PerspectiveTaking": {"score": 65}}}}
+        if 'dimensions' in user_profile and isinstance(user_profile['dimensions'], dict):
+            dims = user_profile['dimensions']
+            
+            # 检查是否是扁平化格式（包含 "." 的键）
+            is_flat = any('.' in str(k) for k in dims.keys())
+            
+            if is_flat:
+                # 扁平化格式：直接遍历
+                for dim_key, dim_score in dims.items():
+                    if dim_score is not None:
+                        # dim_key 格式: "Ocean.Extraversion"
+                        # 转换为: [DIM_OCEAN_EXTRAVERSION=90]
+                        tag_name = f"DIM_{dim_key.upper().replace('.', '_')}"
+                        profile_tags.append(f"[{tag_name}={dim_score}]")
+            else:
+                # 嵌套格式：需要遍历两层
+                for scale_name, scale_data in dims.items():
+                    if isinstance(scale_data, dict) and 'dimensions' in scale_data:
+                        subdims = scale_data['dimensions']
+                        for subdim_name, subdim_data in subdims.items():
+                            if isinstance(subdim_data, dict) and 'score' in subdim_data:
+                                score = subdim_data['score']
+                                # 生成标签: [DIM_BIRI_PERSPECTIVETAKING=65]
+                                tag_name = f"DIM_{scale_name.upper()}_{subdim_name.upper()}"
+                                profile_tags.append(f"[{tag_name}={score}]")
+        
+        # 其他 profile 字段（排除 dimensions 和已处理的字段）
+        excluded_keys = {'name', 'age', 'gender', 'dimensions', 'unstructured'}
+        for key, value in user_profile.items():
+            if key not in excluded_keys and value:
+                # 将其他字段也转为标签格式
+                tag_name = f"USER_{key.upper()}"
+                profile_tags.append(f"[{tag_name}={value}]")
+        
+        if profile_tags:
+            system_parts.append("[USER_PROFILE]\n" + "\n".join(profile_tags))
+    English_flag = False
+    Japanese_flag = False
+    # 2. TASK 部分 - 任务描述
+    task_text = task_description if task_description else "基于用户在 Lovink 对话中的历史数据，模拟该用户的对话行为模式"
+    if task_text == "基于角色在电影中的历史对话数据，模拟该角色的对话风格和行为模式": # Chameleons
+        English_flag = True 
+        task_text = "Given the historical dialogue of a character in a movie, model the character's speaking style and behavioral patterns, and predict the next utterance the user would produce."
+    elif task_text == "基于用户在 Reddit 上的历史对话数据，模拟该用户的对话风格和行为模式":
+        # English_flag = True 
+        task_text = "Given the historical dialogue of a user on Reddit, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce."
+    elif task_text == "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式":
+        Japanese_flag = True 
+        task_text = "RealPersonaChatデータセットにおけるユーザーの過去の会話データに基づき、当該ユーザーの会話行動パターンをシミュレートする："
+    elif task_text == "基于用户在 REALTALK 数据集中的历史对话数据，模拟该用户的对话风格和行为模式":
+        task_text = "Given the historical dialogue of a user on REALTALK, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce."
+    system_parts.append(f"[TASK]\n{task_text}")
+    
+    # 2.5. HISTORY 部分 - 历史信息（在 TASK 和 RECENT_DIALOGUE 之间）
+    if use_history and history and len(history) > 0:
+        history_parts = ["[HISTORY]"]
+        # 限制历史条目数量，避免过长
+        max_history_items = 15
+        history_to_use = history[:max_history_items] if len(history) > max_history_items else history
+        
+        for i, item in enumerate(history_to_use, 1):
+            # 支持多种格式的历史
+            if isinstance(item, str):
+                content = item
+            elif isinstance(item, dict):
+                content = item.get('next_question', '') or item.get('content', '') or item.get('continuation', '')
+            else:
+                content = str(item)
+            
+            if content:
+                # 截断过长的历史项
+                if len(content) > 200:
+                    content = content[:197] + "..."
+                history_parts.append(f"{i}. {content}")
+        
+        if len(history_parts) > 1:  # 确保有实际内容
+            if task_text and "MovieLens" in task_text:
+                # MovieLens 特殊标题
+                system_parts.append("[HISTORICAL_RATINGS]")
+                system_parts.append("\n".join(history_parts[1:]))  # 跳过 [HISTORY] 标题
+            else:
+                system_parts.append("\n".join(history_parts))
+    
+    # 3. RECENT_DIALOGUE 部分 - 动态调整长度
+    recent_context = context.copy() if use_context and context else []
+    
+    # 如果提供了 tokenizer，进行动态长度检查
+    if tokenizer and use_context and recent_context:
+        # 构建初始的 dialogue 部分（不加入 system_parts）
+        def build_dialogue_section(ctx):
+            dialogue_parts = ["[RECENT_DIALOGUE]"]
+            for turn in ctx:
+                role = turn.get('role', 'unknown')
+                content = turn.get('content', '')
+                label = "User" if role == 'user' else "Assistant" if role == 'assistant' else "Unknown"
+                dialogue_parts.append(f"{label}: {content}")
+            return "\n".join(dialogue_parts)
+        
+        # 估算 target 的 token 数
+        target_tokens = len(tokenizer.encode(next_question, add_special_tokens=False))
+        
+        # 预留空间：target + min_target_tokens 的缓冲 + 特殊 tokens
+        reserved_tokens = target_tokens + min_target_tokens + 50  # 50 for special tokens
+        max_prompt_tokens = max_length - reserved_tokens
+        
+        # 从最近的对话开始，逐步增加，直到接近限制
+        # 策略：从后往前添加对话轮次
+        truncated_context = []
+        removed_turns = 0
+        
+        for i in range(len(recent_context) - 1, -1, -1):
+            # 尝试添加这一轮对话
+            test_context = [recent_context[i]] + truncated_context
+            
+            # 构建临时 system message 测试长度
+            temp_system_parts = system_parts.copy()
+            temp_system_parts.append(build_dialogue_section(test_context))
+            temp_system_parts.append("\nPredict the user's next message:")
+            temp_system_content = "\n\n".join(temp_system_parts)
+            
+            # 构建临时 messages 测试 tokenization
+            temp_messages = [{"role": "system", "content": temp_system_content}]
+            
+            try:
+                # 使用 apply_chat_template 估算实际长度
+                prompt_tokens = len(tokenizer.apply_chat_template(temp_messages, tokenize=True, add_generation_prompt=False))
+                total_tokens = prompt_tokens + target_tokens
+                
+                if total_tokens <= max_length:
+                    # 还有空间，添加这一轮
+                    truncated_context = test_context
+                else:
+                    # 超出限制，停止添加
+                    removed_turns += 1
+                    break
+            except:
+                # 如果 tokenization 失败，保守估计
+                truncated_context = test_context
+                break
+        
+        recent_context = truncated_context
+        
+        if removed_turns > 0 and len(truncated_context) > 0:
+            # 在对话开头添加省略提示
+            dialogue_parts = [f"[RECENT_DIALOGUE]\n（前面省略了 {removed_turns} 轮对话，以下是最近的对话）"]
+        else:
+            dialogue_parts = ["[RECENT_DIALOGUE]"]
+        
+        for turn in recent_context:
+            role = turn.get('role', 'unknown')
+            content = turn.get('content', '')
+            label = "User" if role == 'user' else "Assistant" if role == 'assistant' else "Unknown"
+            dialogue_parts.append(f"{label}: {content}")
+        
+        system_parts.append("\n".join(dialogue_parts))
+    elif use_context and recent_context:
+        # 没有 tokenizer，使用简单的轮次限制（回退方案）
+        recent_context = recent_context[-8:] if len(recent_context) > 8 else recent_context
+        
+        dialogue_parts = ["[RECENT_DIALOGUE]"]
+        for turn in recent_context:
+            role = turn.get('role', 'unknown')
+            content = turn.get('content', '')
+            label = "User" if role == 'user' else "Assistant" 
+            dialogue_parts.append(f"{label}: {content}")
+        
+        system_parts.append("\n".join(dialogue_parts))
+    
+    # 4. 预测指令
+    if English_flag:
+        system_parts.append("\nPredict the user's next message:")
+    elif Japanese_flag:
+        system_parts.append("\nユーザーの次のメッセージを予測する：")
+    else:
+        if task_text == "基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式":
+            system_parts.append("\n预测用户针对该问题的回复：")
+        elif task_text and "MovieLens" in task_text:
+            system_parts.append("\n预测用户对该电影的评分：")
+        elif task_text and "Reddit" in task_text:
+            system_parts.append("\nPredict the user's response to the comment:")
+        elif task_text and "REALTALK" in task_text:
+            system_parts.append("\nPredict the user's next message:")
+        else:
+            system_parts.append("\n预测用户的下一条消息:")
+    
+    # 组合成 system message
+    system_content = "\n\n".join(system_parts)
+    messages.append({"role": "system", "content": system_content})
+    
+    # target_answer 就是 next_question
+    target_answer = next_question
+    
+    return messages, target_answer
+
+
+# ============================================================================
+# 用户采样函数
+# ============================================================================
+
+def sample_per_user(
+    all_samples: List[Dict[str, Any]],
+    max_samples_per_user: int = 2,
+    random_seed: int = 42
+) -> List[Dict[str, Any]]:
+    """
+    对每个用户的样本进行随机采样
+    
+    Args:
+        all_samples: 所有训练样本
+        max_samples_per_user: 每个用户最多保留多少个样本
+        random_seed: 随机种子（保证可复现）
+    
+    Returns:
+        采样后的样本列表
+    """
+    random.seed(random_seed)
+    
+    # 按用户分组
+    user_samples = {}
+    for sample in all_samples:
+        user_hash = sample.get('user_hash', 'unknown')
+        if user_hash not in user_samples:
+            user_samples[user_hash] = []
+        user_samples[user_hash].append(sample)
+    
+    # 对每个用户的样本进行采样
+    sampled_samples = []
+    for user_hash, samples in user_samples.items():
+        if len(samples) <= max_samples_per_user:
+            # 样本数不超过限制，全部保留
+            sampled_samples.extend(samples)
+        else:
+            # 随机采样
+            sampled = random.sample(samples, max_samples_per_user)
+            sampled_samples.extend(sampled)
+    
+    # 打印统计信息
+    print(f"\n{'='*50}")
+    print(f"样本采样统计:")
+    print(f"  原始样本数: {len(all_samples)}")
+    print(f"  用户数: {len(user_samples)}")
+    print(f"  每用户最大样本数: {max_samples_per_user}")
+    print(f"  采样后样本数: {len(sampled_samples)}")
+    print(f"  采样比例: {len(sampled_samples) / len(all_samples) * 100:.1f}%")
+    print(f"  预期训练时间缩短: {len(all_samples) / len(sampled_samples):.1f}x")
+    print(f"{'='*50}\n")
+    
+    return sampled_samples
+
+
+# ============================================================================
+# 训练/验证集划分和历史添加
+# ============================================================================
+
+def split_train_val(samples, val_ratio=0.15, seed=42):
+    """
+    划分训练集和验证集（用户内划分，保证每个用户在训练和验证集都有样本）
+    
+    策略：对每个用户的样本进行随机打乱后按比例划分
+    - 适用场景：测试集中的用户也出现在训练集中
+    - 目标：学习基于用户已有对话预测新对话（用户内泛化）
+    
+    Args:
+        samples: 所有训练样本
+        val_ratio: 验证集比例（默认0.15，即15%）
+        seed: 随机种子
+    
+    Returns:
+        (train_samples, val_samples)
+    """
+    random.seed(seed)
+    
+    # 按用户分组
+    user_samples = {}
+    for sample in samples:
+        user_hash = sample['user_hash']
+        if user_hash not in user_samples:
+            user_samples[user_hash] = []
+        user_samples[user_hash].append(sample)
+    
+    train_samples = []
+    val_samples = []
+    
+    # 对每个用户的样本进行划分
+    for user_hash, user_data in user_samples.items():
+        # 随机打乱该用户的样本
+        random.shuffle(user_data)
+        
+        # 计算划分点：(1 - val_ratio) 的样本用于训练
+        split_idx = int(len(user_data) * (1 - val_ratio))
+        
+        # 确保至少有1个样本在训练集（如果该用户只有1个样本，全部给训练集）
+        if split_idx == 0 and len(user_data) > 0:
+            split_idx = 1
+        
+        # 划分
+        train_samples.extend(user_data[:split_idx])
+        val_samples.extend(user_data[split_idx:])
+    
+    return train_samples, val_samples
+
+
+def add_history_to_samples(train_samples, all_samples):
+    """为每个样本添加历史信息（只包含用户的问题，不包含assistant内容）"""
+    samples_with_history = []
+    for sample in train_samples:
+        user_hash = sample['user_hash']
+        history = get_user_only_history(
+            all_samples, 
+            user_hash,
+            current_sample=sample,
+            current_context=sample.get('context'),
+            max_history=15,
+            use_cache=True
+        )
+        sample['history'] = history
+        samples_with_history.append(sample)
+    return samples_with_history
+
+
+class DynamicPaddingDataset(Dataset):
+    """
+    优化版数据集：不做padding，返回原始长度的tensor
+    padding将在collate_fn中动态进行
+    """
+    def __init__(self, samples, tokenizer, max_length=32768, use_profile=True, use_history=True, use_context=True, verbose=False, use_detailed_template=True, max_context_turns=15, template_filename=None):
+        # 使用绝对路径导入，确保使用当前目录的模块
+        import sys
+        from pathlib import Path
+        current_dir = str(Path(__file__).parent.absolute())
+        if current_dir not in sys.path:
+            sys.path.insert(0, current_dir)
+        
+        # ✅ 根据 use_detailed_template 选择 prompt 构建函数
+        if use_detailed_template:
+            # 使用详细模板（标准 markdown 格式，使用 {VAR_NAME} 占位符）
+            from prompt_builder_LovinkDialogue import build_training_prompt
+            print("使用详细 Prompt 模板 (prompt_builder_LovinkDialogue)")
+            self.build_training_prompt = build_training_prompt
+        else:
+            # 使用简短模板
+            # 优先尝试从 data_loader.py 导入（新版本，只预测 continuation）
+            # 如果失败，则从 data_loader_more_data.py 导入（旧版本，数据扩充）
+            try:
+                from data_loader import build_simple_training_prompt as build_training_prompt
+                print("使用简短 Prompt 模板 (data_loader.build_simple_training_prompt - 只预测continuation)")
+                self.build_training_prompt = build_training_prompt
+            except ImportError:
+                from data_loader_more_data import build_simple_training_prompt as build_training_prompt
+                print("使用简短 Prompt 模板 (data_loader_more_data.build_simple_training_prompt)")
+                self.build_training_prompt = build_training_prompt
+        
+        self.samples = samples
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.use_profile = use_profile
+        self.use_history = use_history
+        self.use_context = use_context
+        self.use_detailed_template = use_detailed_template  # 是否使用详细模板
+        self.max_context_turns = max_context_turns  # 新增：最大保留的 context 轮次数
+        self.template_filename = template_filename  # 新增：模板文件名
+        self.verbose = verbose  # 是否输出详细日志
+        
+        # 截断统计
+        self.truncation_stats = {
+            'total_samples': 0,
+            'truncated_samples': 0,
+            'truncated_turns': 0,
+            # 历史记录统计
+            'total_history_items': 0,
+            'truncated_history_items': 0,
+            'samples_with_history': 0,
+            'samples_with_history_truncated': 0
+        }
+        
+        # 用于记录第一次截断的样本信息（调试用）
+        self.first_truncation_logged = False
+
+    def __len__(self):
+        return len(self.samples)
+    
+    def get_truncation_stats(self):
+        """获取截断统计信息"""
+        if self.truncation_stats['total_samples'] == 0:
+            return {
+                'truncation_rate': 0.0,
+                'avg_truncated_turns': 0.0,
+                'total_samples': 0,
+                'truncated_samples': 0,
+                # 历史记录统计
+                'history_truncation_rate': 0.0,
+                'total_history_items': 0,
+                'truncated_history_items': 0,
+                'samples_with_history': 0,
+                'samples_with_history_truncated': 0
+            }
+        
+        truncation_rate = self.truncation_stats['truncated_samples'] / self.truncation_stats['total_samples']
+        avg_truncated_turns = (self.truncation_stats['truncated_turns'] / self.truncation_stats['truncated_samples'] 
+                               if self.truncation_stats['truncated_samples'] > 0 else 0)
+        
+        # 计算历史记录截断率
+        history_truncation_rate = 0.0
+        if self.truncation_stats['total_history_items'] > 0:
+            history_truncation_rate = self.truncation_stats['truncated_history_items'] / self.truncation_stats['total_history_items']
+        
+        return {
+            'truncation_rate': truncation_rate,
+            'avg_truncated_turns': avg_truncated_turns,
+            'total_samples': self.truncation_stats['total_samples'],
+            'truncated_samples': self.truncation_stats['truncated_samples'],
+            # 历史记录统计
+            'history_truncation_rate': history_truncation_rate,
+            'total_history_items': self.truncation_stats['total_history_items'],
+            'truncated_history_items': self.truncation_stats['truncated_history_items'],
+            'samples_with_history': self.truncation_stats['samples_with_history'],
+            'samples_with_history_truncated': self.truncation_stats['samples_with_history_truncated']
+        }
+
+    def __getitem__(self, idx):
+        sample = self.samples[idx]
+        
+        # 统计历史记录信息
+        original_history = sample.get('history', []) if self.use_history else []
+        has_history = len(original_history) > 0
+        original_history_count = len(original_history)
+        
+        if has_history:
+            self.truncation_stats['samples_with_history'] += 1
+            self.truncation_stats['total_history_items'] += original_history_count
+        
+        # 1. 构建消息
+        # ✅ 根据模板类型，传递不同的参数
+        if self.use_detailed_template:
+            # 详细模板需要额外的参数
+            messages, target_answer = self.build_training_prompt(
+                context=sample['context'],
+                next_question=sample['next_question'],
+                user_profile=sample.get('user_profile') if self.use_profile else None,
+                task_description=sample.get('task_description'),
+                history=original_history,
+                use_profile=self.use_profile,
+                use_history=self.use_history,
+                use_context=self.use_context,
+                use_detailed_template=self.use_detailed_template,
+                max_context_turns=self.max_context_turns,
+                tokenizer=self.tokenizer,
+                template_filename=self.template_filename  # ✅ 传递模板文件名
+            )
+        else:
+            # 简短模板 - ✅ 添加 tokenizer 和 max_length 用于动态长度调整
+            messages, target_answer = self.build_training_prompt(
+                context=sample['context'],
+                next_question=sample['next_question'],
+                user_profile=sample.get('user_profile') if self.use_profile else None,
+                task_description=sample.get('task_description'),
+                history=original_history,
+                use_profile=self.use_profile,
+                use_history=self.use_history,
+                use_context=self.use_context,
+                tokenizer=self.tokenizer,         # ✅ 传递 tokenizer
+                max_length=self.max_length,       # ✅ 传递 max_length
+                min_target_tokens=64,             # ✅ 预留 64 tokens 给 target
+                user_hash=sample.get('user_hash')  # ✅ 传递 user_hash（始终包含）
+            )
+
+
+        # 检查历史记录是否被截断（在 prompt_builder 中限制为前5个）
+        if has_history and original_history_count > 5:
+            truncated_history_count = original_history_count - 5
+            self.truncation_stats['truncated_history_items'] += truncated_history_count
+            self.truncation_stats['samples_with_history_truncated'] += 1
+
+
+        # 2. 生成完整文本
+        full_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+        # 修正：应该生成assistant角色的回复（目标用户）
+        generation_suffix = "<|im_start|>assistant\n"
+        full_prompt = full_prompt.strip() + generation_suffix
+        im_end_token = "<|im_end|>"
+        full_text = full_prompt + target_answer + im_end_token
+        
+        # ✅ 第二层保护：如果仍然超长，逐步从前往后删除对话轮次
+        target_with_end = target_answer + im_end_token
+        target_tokens = len(self.tokenizer.encode(target_with_end, add_special_tokens=False))
+        min_buffer = 64
+        
+        full_length = len(self.tokenizer.encode(full_text, add_special_tokens=False))
+        is_truncated = False
+        removed_turns = 0
+        
+        if full_length > self.max_length:
+            is_truncated = True
+            
+            # 允许的最大 prompt 长度
+            max_prompt_tokens = self.max_length - target_tokens - min_buffer
+            
+            # 如果有 RECENT_DIALOGUE 部分，逐步从前往后删除旧对话
+            if len(messages) > 0 and messages[0].get('role') == 'system':
+                system_content = messages[0]['content']
+                
+                if '[RECENT_DIALOGUE]' in system_content:
+                    # 解析 dialogue 部分
+                    parts = system_content.split('[RECENT_DIALOGUE]')
+                    if len(parts) > 1:
+                        prefix = parts[0].strip()  # Profile + Task
+                        dialogue_section = parts[1].strip()
+                        
+                        # 提取对话行（跳过 "Predict the user's next message:"）
+                        dialogue_lines = []
+                        for line in dialogue_section.split('\n'):
+                            line = line.strip()
+                            if line and not line.startswith('Predict') and not line.startswith('（前面省略'):
+                                if line.startswith('User:') or line.startswith('Assistant:'):
+                                    dialogue_lines.append(line)
+                        
+                        # 从前往后逐步删除对话轮次，直到长度合适
+                        while dialogue_lines and full_length > self.max_length:
+                            # 删除最旧的一轮（第一个）
+                            dialogue_lines.pop(0)
+                            removed_turns += 1
+                            
+                            # 重建 system message
+                            if removed_turns > 0 and dialogue_lines:
+                                new_dialogue = f"\n[RECENT_DIALOGUE]\n（前面省略了 {removed_turns} 轮对话）\n" + "\n".join(dialogue_lines)
+                            elif dialogue_lines:
+                                new_dialogue = "\n[RECENT_DIALOGUE]\n" + "\n".join(dialogue_lines)
+                            else:
+                                new_dialogue = ""
+                            
+                            new_system = prefix + new_dialogue + "\n\nPredict the user's next message:"
+                            messages[0]['content'] = new_system
+                            
+                            # 重新生成并测试长度
+                            full_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+                            full_prompt = full_prompt.strip() + generation_suffix
+                            full_text = full_prompt + target_answer + im_end_token
+                            full_length = len(self.tokenizer.encode(full_text, add_special_tokens=False))
+        
+        # 更新截断统计
+        self.truncation_stats['total_samples'] += 1
+        if is_truncated:
+            self.truncation_stats['truncated_samples'] += 1
+            self.truncation_stats['truncated_turns'] += removed_turns
+            
+            # 第一次遇到截断时输出日志
+            if not self.first_truncation_logged and self.verbose:
+                self.first_truncation_logged = True
+                print(f"\n⚠️  第二层保护：逐步删除旧对话 (样本#{idx}):")
+                print(f"  删除了 {removed_turns} 轮对话（从最旧的开始）")
+                print(f"  调整后长度: {full_length} tokens")
+                print(f"  最大长度: {self.max_length} tokens")
+                print(f"  Target 长度: {target_tokens} tokens (已完整保留)")
+                print(f"  (后续截断将不再输出详细信息)\n")
+
+        # 3. 编码 - 关键：不做padding！
+        encoded = self.tokenizer(
+            full_text,
+            truncation=True,
+            max_length=self.max_length,
+            padding=False,  # 关键改动：不padding
+            return_tensors='pt'
+        )
+        
+        input_ids = encoded['input_ids'].squeeze()
+        attention_mask = encoded['attention_mask'].squeeze()
+
+        # 4. 计算labels
+        target_ids = self.tokenizer.encode(target_answer, add_special_tokens=False)
+        prompt_ids = self.tokenizer.encode(full_prompt, add_special_tokens=False)
+        actual_prompt_len = len(prompt_ids)
+
+        labels = input_ids.clone()
+        safe_prompt_len = min(actual_prompt_len, len(input_ids) - 1)
+        labels[:safe_prompt_len] = -100
+        
+        # 屏蔽padding token（虽然现在没有padding，但为了兼容性保留）
+        labels[input_ids == self.tokenizer.pad_token_id] = -100
+
+        return {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'labels': labels,
+            'actual_length': len(input_ids)  # 记录实际长度，用于调试
+        }
+
+
+def dynamic_padding_collate_fn(examples, tokenizer):
+    """
+    动态Padding的collate函数
+    关键优化：只padding到batch内最长样本的长度，而不是固定的max_length
+    """
+    # 找到batch中最长的序列长度
+    max_length_in_batch = max(ex['input_ids'].shape[0] for ex in examples)
+    
+    # 打印batch信息（用于调试）
+    lengths = [ex['input_ids'].shape[0] for ex in examples]
+    if random.random() < 0.05:  # 5%的概率打印，避免刷屏
+        print(f"[Batch Info] Lengths: {lengths}, Max: {max_length_in_batch}, Avg: {sum(lengths)/len(lengths):.0f}")
+    
+    batch = {}
+    
+    # 动态padding每个字段
+    padded_input_ids = []
+    padded_attention_mask = []
+    padded_labels = []
+    
+    for ex in examples:
+        seq_len = ex['input_ids'].shape[0]
+        pad_len = max_length_in_batch - seq_len
+        
+        # Padding input_ids
+        padded_input_ids.append(
+            torch.cat([
+                ex['input_ids'],
+                torch.full((pad_len,), tokenizer.pad_token_id, dtype=torch.long)
+            ])
+        )
+        
+        # Padding attention_mask
+        padded_attention_mask.append(
+            torch.cat([
+                ex['attention_mask'],
+                torch.zeros(pad_len, dtype=torch.long)
+            ])
+        )
+        
+        # Padding labels
+        padded_labels.append(
+            torch.cat([
+                ex['labels'],
+                torch.full((pad_len,), -100, dtype=torch.long)
+            ])
+        )
+    
+    batch['input_ids'] = torch.stack(padded_input_ids)
+    batch['attention_mask'] = torch.stack(padded_attention_mask)
+    batch['labels'] = torch.stack(padded_labels)
+    
+    # 添加其他元信息（如果有）
+    if 'actual_length' in examples[0]:
+        batch['actual_length'] = [ex['actual_length'] for ex in examples]
+    
+    return batch
+
+def select_relevant_history(history: List[str], current_context: List[Dict[str, str]], max_history: int) -> List[str]:
+    """
+    智能选择最相关的历史记录（简单版本：返回最近的）
+    
+    Args:
+        history: 历史记录列表
+        current_context: 当前对话上下文
+        max_history: 最大历史数量
+    
+    Returns:
+        筛选后的历史记录
+    """
+    # 简单实现：返回最近的历史记录
+    return history[-max_history:] if len(history) > max_history else history
 
 
 def check_flash_attention_support():
@@ -410,9 +1470,6 @@ def main():
     
     # 在主进程中打印几个样本示例（用于调试和验证）
     if is_main_process and training_log_path:
-        print("\n" + "=" * 80)
-        print("📝 样本示例（前5个训练样本）")
-        print("=" * 80)
         
         # 同时写入日志文件
         with open(training_log_path, 'w', encoding='utf-8') as log_file:
@@ -882,32 +1939,6 @@ def main():
             f.write("=" * 100 + "\n")
         
         print(f"✓ 训练样本日志已保存到: {training_log_file}\n")
-        
-        # 在控制台显示第一个样本的简要信息
-        print("=" * 80)
-        print("📋 第一个训练样本预览")
-        print("=" * 80)
-        
-        first_sample = train_samples[0]
-        print(f"User Hash: {first_sample.get('user_hash', 'N/A')}")
-        
-        context = first_sample.get('context', [])
-        if context:
-            print(f"\nContext 最后一轮:")
-            last_turn = context[-1]
-            print(f"  [{last_turn.get('role', 'unknown')}]: {last_turn.get('content', '')[:150]}...")
-        
-        next_question = first_sample.get('next_question', '')
-        print(f"\nTarget (要学习生成的):")
-        print(f"  {next_question[:150]}...")
-        
-        first_encoded = train_dataset[0]
-        print(f"\n编码信息:")
-        print(f"  Input length: {len(first_encoded['input_ids'])} tokens")
-        print(f"  Valid labels: {(first_encoded['labels'] != -100).sum().item()} tokens")
-        print(f"  训练比例: {(first_encoded['labels'] != -100).sum().item() / len(first_encoded['labels']):.2%}")
-        
-        print("=" * 80 + "\n")
     
     # 开始训练
     if is_main_process:
@@ -942,7 +1973,7 @@ def main():
     # 训练完成，输出日志汇总
     if is_main_process:
         print("\n" + "=" * 80)
-        print("📊 训练日志汇总")
+        print("训练日志汇总")
         print("=" * 80)
         
         log_dir = os.path.join(output_dir, "training_logs")

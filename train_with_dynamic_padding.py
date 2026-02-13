@@ -22,7 +22,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 
 
-def split_train_val(samples, val_ratio=0.15, seed=42):
+def split_train_val(samples, val_ratio=0.1, seed=42):
     """
     划分训练集和验证集（用户内划分，保证每个用户在训练和验证集都有样本）
     
@@ -105,7 +105,7 @@ class DynamicPaddingDataset(Dataset):
         if use_detailed_template:
             # 使用详细模板（标准 markdown 格式，使用 {VAR_NAME} 占位符）
             from prompt_builder_LovinkDialogue import build_training_prompt
-            print("ℹ️  使用详细 Prompt 模板 (prompt_builder_LovinkDialogue)")
+            print("使用详细 Prompt 模板 (prompt_builder_LovinkDialogue)")
             self.build_training_prompt = build_training_prompt
         else:
             # 使用简短模板
