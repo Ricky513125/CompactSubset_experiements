@@ -668,7 +668,8 @@ def main():
     parser.add_argument('--scenario_path', type=str, default=None,
                        help='场景目录路径（完整路径）')
     parser.add_argument('--dataset', type=str, default=None,
-                       choices=['LovinkDialogue', 'RealPersonaChat', 'IdealSelf'],
+                       choices=['LovinkDialogue', 'LovinkQuestionnaire', 'RealPersonaChat', 
+                               'DMSC', 'MovieLens', 'Chameleons', 'PERSONA_Bench', 'REALTALK'],
                        help='数据集名称（简写，会自动转换为完整路径）')
     
     # 支持两种方式指定配置

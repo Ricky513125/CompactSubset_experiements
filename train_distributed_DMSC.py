@@ -41,7 +41,7 @@ from torch.utils.data.distributed import DistributedSampler
 # sys.path.insert(0, str(Path(__file__).parent.parent))
 # from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
 from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history # 新版本 简短的训练prompt
-from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
+from train_with_dynamic_padding import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
 from data_augmentation_temporal import expand_samples_with_temporal_history, expand_samples_with_sliding_window, print_augmentation_stats
 from transformers import (
     AutoTokenizer,

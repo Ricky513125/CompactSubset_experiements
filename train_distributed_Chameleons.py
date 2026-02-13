@@ -42,7 +42,7 @@ from torch.utils.data.distributed import DistributedSampler
 # 
 # ✅ 使用新的 data_loader.py - 只预测 continuation，不做数据扩充
 from data_loader import load_train_data, extract_training_samples, get_user_only_history, build_simple_training_prompt
-from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
+from train_with_dynamic_padding import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
 from sample_per_user import sample_per_user  # 新增：用户采样
 from transformers import (
     AutoTokenizer,

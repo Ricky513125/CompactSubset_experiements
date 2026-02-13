@@ -81,14 +81,15 @@ def extract_movie_review_samples(
        - 用户有100条影评 → 生成100个样本
        - 样本1: [] → r1, 样本2: [r1] → r2, ..., 样本100: [r1..r99] → r100
     
-    2. one_sample_per_user=True：每个用户只生成1个样本
-       - 用户有100条影评 → 生成1个样本
-       - 样本: [r1..r99] → r100（用前n-1条预测第n条）
-       - **大幅减少训练数据量，缩短训练时间**
+    2. one_sample_per_user=True：每个用户只生成2个样本（最后2条）
+       - 用户有100条影评 → 生成2个样本
+       - 样本1: [r1..r98] → r99（用前98条预测第99条）
+       - 样本2: [r1..r99] → r100（用前99条预测第100条）
+       - **大幅减少训练数据量，同时最大化历史信息利用**
     
     Args:
         raw_data: 原始数据
-        one_sample_per_user: 是否每个用户只生成一个样本（默认False）
+        one_sample_per_user: 是否每个用户只生成最后2个样本（默认False）
         debug: 是否输出调试信息
         
     Returns:
@@ -115,52 +116,64 @@ def extract_movie_review_samples(
                 print(f"影评总数: {len(reviews)}")
             
             if one_sample_per_user:
-                # 🔥 新模式：每个用户只生成1个样本
-                # 使用前 n-1 条作为历史，预测第 n 条
-                if len(reviews) < 2:
+                # 🔥 新模式：每个用户选择最后2条作为预测目标
+                # 使用前 n-2 条作为历史，预测最后 2 条
+                if len(reviews) < 3:
                     if debug:
-                        print(f"  ⚠️ 跳过该用户（影评数 < 2）")
+                        print(f"  ⚠️ 跳过该用户（影评数 < 3）")
                     continue
                 
-                # 所有影评除最后一条作为历史
-                history_reviews = reviews[:-1]
-                last_review = reviews[-1]
+                # 前 n-2 条作为共享历史
+                history_reviews = reviews[:-2]
+                # 最后2条作为预测目标
+                last_two_reviews = reviews[-2:]
                 
-                sample = {
-                    'user_profile': user_profile,
-                    'user_hash': user_profile.get('name', 'unknown'),
-                    'task_description': task_desc,
+                # 为最后2条影评分别创建样本，但都使用相同的历史
+                for idx, target_review in enumerate(last_two_reviews):
+                    # 对于第二个样本（reviews[-1]），可以额外包含reviews[-2]作为历史
+                    if idx == 0:
+                        # 第一个样本：只用前 n-2 条作为历史
+                        current_history = history_reviews
+                    else:
+                        # 第二个样本：用前 n-2 条 + reviews[-2] 作为历史
+                        current_history = history_reviews + [last_two_reviews[0]]
                     
-                    # 历史影评（前 n-1 条）
-                    'history': [
-                        {
-                            'movie': h.get('continuation_prefix', '').rstrip(': '),
-                            'review': h.get('continuation', ''),
-                            'timestamp': h.get('timestamp', '')
-                        }
-                        for h in history_reviews
-                    ],
+                    sample = {
+                        'user_profile': user_profile,
+                        'user_hash': user_profile.get('name', 'unknown'),
+                        'task_description': task_desc,
+                        
+                        # 历史影评
+                        'history': [
+                            {
+                                'movie': h.get('continuation_prefix', '').rstrip(': '),
+                                'review': h.get('continuation', ''),
+                                'timestamp': h.get('timestamp', '')
+                            }
+                            for h in current_history
+                        ],
+                        
+                        # 当前电影信息
+                        'movie_name': target_review.get('continuation_prefix', '').rstrip(': '),
+                        'timestamp': target_review.get('timestamp', ''),
+                        
+                        # 目标：要预测的影评
+                        'next_question': target_review.get('continuation', ''),
+                        
+                        # context保持空列表（兼容现有框架）
+                        'context': target_review.get('context', []),
+                        
+                        # 元数据
+                        'total_reviews': len(reviews),
+                        'history_count': len(current_history),
+                        'target_index': len(reviews) - 2 + idx,  # 倒数第2个或最后1个
+                        'raw_review': target_review
+                    }
                     
-                    # 当前电影信息（第 n 条）
-                    'movie_name': last_review.get('continuation_prefix', '').rstrip(': '),
-                    'timestamp': last_review.get('timestamp', ''),
-                    
-                    # 目标：要预测的影评（第 n 条）
-                    'next_question': last_review.get('continuation', ''),
-                    
-                    # context保持空列表（兼容现有框架）
-                    'context': last_review.get('context', []),
-                    
-                    # 元数据
-                    'total_reviews': len(reviews),
-                    'history_count': len(history_reviews),
-                    'raw_review': last_review
-                }
-                
-                all_samples.append(sample)
+                    all_samples.append(sample)
                 
                 if debug:
-                    print(f"  生成1个样本: {len(history_reviews)}条历史 → 预测第{len(reviews)}条")
+                    print(f"  生成2个样本: {len(history_reviews)}条共享历史 → 预测最后2条")
             
             else:
                 # 原模式：为每条影评创建一个训练样本
@@ -662,6 +675,91 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
+    # 📊 数据长度分析（在加载模型之前）
+    train_config = config.get('training', {})
+    if is_main_process:
+        print("\n" + "=" * 80)
+        print("📊 分析训练数据长度分布...")
+        print("=" * 80)
+        
+        try:
+            # 采样分析（不超过500个样本）
+            sample_size = min(500, len(all_samples))
+            analysis_samples = random.sample(all_samples, sample_size) if len(all_samples) > sample_size else all_samples
+            
+            lengths = []
+            failed_count = 0
+            for sample in analysis_samples:
+                try:
+                    # 构建完整的prompt
+                    messages, target_answer = build_movie_review_prompt(
+                        sample=sample,
+                        use_profile=use_profile,
+                        use_history=use_history
+                    )
+                    
+                    # 转换为文本
+                    full_text = tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True
+                    ) + target_answer
+                    
+                    # 编码获取长度
+                    token_ids = tokenizer.encode(full_text, add_special_tokens=True)
+                    lengths.append(len(token_ids))
+                except Exception as e:
+                    failed_count += 1
+                    if failed_count <= 3:  # 只打印前3个错误
+                        print(f"  样本分析失败: {type(e).__name__}: {str(e)[:100]}")
+                    continue
+            
+            if lengths:
+                import numpy as np
+                lengths_array = np.array(lengths)
+                
+                max_length = int(np.max(lengths_array))
+                min_length = int(np.min(lengths_array))
+                mean_length = float(np.mean(lengths_array))
+                median_length = float(np.median(lengths_array))
+                percentile_90 = float(np.percentile(lengths_array, 90))
+                percentile_95 = float(np.percentile(lengths_array, 95))
+                percentile_99 = float(np.percentile(lengths_array, 99))
+                
+                print(f"分析了 {len(lengths)}/{len(all_samples)} 个样本:")
+                print(f"  最小长度: {min_length}")
+                print(f"  最大长度: {max_length}")
+                print(f"  平均长度: {mean_length:.0f}")
+                print(f"  中位数长度: {median_length:.0f}")
+                print(f"  90分位数长度: {percentile_90:.0f}")
+                print(f"  95分位数长度: {percentile_95:.0f}")
+                print(f"  99分位数长度: {percentile_99:.0f}")
+                
+                # 与配置的max_length对比
+                configured_max_length = train_config.get('max_length', 4096)
+                print(f"\n配置的 max_length: {configured_max_length}")
+                
+                exceeds_count = np.sum(lengths_array > configured_max_length)
+                print(f"超过 max_length 的样本数: {exceeds_count} ({exceeds_count/len(lengths)*100:.1f}%)")
+                
+                # 给出建议
+                print(f"\n建议:")
+                if percentile_95 > configured_max_length:
+                    print(f"  警告: 95%的数据超过配置的max_length，可能导致大量截断")
+                    print(f"  建议调整 max_length 至少到 {int(percentile_95)}")
+                elif percentile_95 < configured_max_length * 0.7:
+                    print(f"  提示: 95%的数据长度远小于max_length，可以考虑降低以节省显存")
+                else:
+                    print(f"  ✓ max_length 设置合理")
+                print("=" * 80 + "\n")
+            else:
+                print(f"警告: 无法分析样本长度 (成功: 0/{sample_size}, 失败: {failed_count})")
+                print("=" * 80 + "\n")
+        
+        except Exception as e:
+            print(f"数据长度分析失败: {e}")
+            print("=" * 80 + "\n")
+    
     # 加载模型
     model_kwargs = {
         'torch_dtype': torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
@@ -692,7 +790,6 @@ def main():
     model = model.to(local_rank)
     
     # 创建数据集
-    train_config = config.get('training', {})
     if is_main_process:
         print("\n创建训练数据集...")
     
