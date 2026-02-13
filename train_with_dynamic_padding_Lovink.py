@@ -109,9 +109,16 @@ class DynamicPaddingDataset(Dataset):
             self.build_training_prompt = build_training_prompt
         else:
             # 使用简短模板
-            from data_loader_more_data import build_simple_training_prompt as build_training_prompt
-            print("✅ 使用简短 Prompt 模板 (data_loader_more_data.build_simple_training_prompt)")
-            self.build_training_prompt = build_training_prompt
+            # 优先尝试从 data_loader.py 导入（新版本，只预测 continuation）
+            # 如果失败，则从 data_loader_more_data.py 导入（旧版本，数据扩充）
+            try:
+                from data_loader import build_simple_training_prompt as build_training_prompt
+                print("✅ 使用简短 Prompt 模板 (data_loader.build_simple_training_prompt - 只预测continuation)")
+                self.build_training_prompt = build_training_prompt
+            except ImportError:
+                from data_loader_more_data import build_simple_training_prompt as build_training_prompt
+                print("✅ 使用简短 Prompt 模板 (data_loader_more_data.build_simple_training_prompt)")
+                self.build_training_prompt = build_training_prompt
         
         self.samples = samples
         self.tokenizer = tokenizer
@@ -223,7 +230,8 @@ class DynamicPaddingDataset(Dataset):
                 use_context=self.use_context,
                 tokenizer=self.tokenizer,         # ✅ 传递 tokenizer
                 max_length=self.max_length,       # ✅ 传递 max_length
-                min_target_tokens=64              # ✅ 预留 64 tokens 给 target
+                min_target_tokens=64,             # ✅ 预留 64 tokens 给 target
+                user_hash=sample.get('user_hash')  # ✅ 传递 user_hash（始终包含）
             )
 
 
