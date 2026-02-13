@@ -1,8 +1,8 @@
 {
   "model": {
-    "name": "Qwen3-4B-Instruct-2507",
-    "path": "/mnt/parallel/models/Qwen3-4B-Instruct",
-    "hf_model_name": "Qwen/Qwen3-4B-Instruct-2507",
+    "name": "Qwen3-30B-A3B-Instruct-2507",
+    "path": "/mnt/parallel/models/Qwen3-30B-A3B-Instruct-2507",
+    "hf_model_name": "Qwen/Qwen3-30B-A3B-Instruct-2507",
     "checkpoint_dir": "/mnt/parallel/checkpoints"
   },
   "data": {
@@ -12,7 +12,7 @@
   "training": {
     "batch_size": 1,
     "eval_batch_size": 1,
-    "gradient_accumulation_steps": 32,
+    "gradient_accumulation_steps": 2,
     "learning_rate": 1e-05,
     "weight_decay": 0.1,
     "warmup_steps": 100,

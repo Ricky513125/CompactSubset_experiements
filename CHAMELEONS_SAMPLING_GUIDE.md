@@ -68,20 +68,61 @@ torchrun \
 
 ## 每个 Epoch 重新采样
 
-如果想要每个 epoch 采样不同的样本，可以在训练脚本中实现：
+**注意**：由于使用 Hugging Face Trainer，**当前不支持每个 epoch 自动重新采样**。
 
-```python
-for epoch in range(max_epochs):
-    # 每个 epoch 使用不同的随机种子
-    epoch_samples = sample_per_user(
-        all_samples,
-        max_samples_per_user=2,
-        random_seed=42 + epoch  # 每个 epoch 不同的种子
-    )
-    # 训练...
+### 替代方案：多次训练
+
+如果想要模型看到更多样本，推荐以下方案：
+
+```bash
+# 方案 1: 训练多个 checkpoint，每次使用不同的随机种子
+for seed in 42 43 44 45 46; do
+    torchrun ... \
+        --max_samples_per_user 2 \
+        --sample_seed $seed \
+        --wandb_run_name context_seed_${seed} \
+        --output_dir outputs/Chameleons_seed_${seed}
+done
+
+# 方案 2: 增加每用户的采样数量
+torchrun ... --max_samples_per_user 5  # 从 2 增加到 5
+
+# 方案 3: 训练更多 epochs
+torchrun ... --max_samples_per_user 2 --max_epochs 100  # 从 50 增加到 100
 ```
 
-但当前实现是**整个训练过程使用固定的采样样本**，更简单高效。
+### 为什么不支持每 epoch 重新采样？
+
+1. **Hugging Face Trainer** 在初始化时固定了数据集
+2. 重新采样需要修改 Trainer 的内部逻辑
+3. 会增加代码复杂度和维护成本
+
+### 推荐的训练策略
+
+**渐进式训练**：
+```bash
+# Step 1: 快速验证（2 样本/用户，seed=42）
+torchrun ... --max_samples_per_user 2 --sample_seed 42
+
+# Step 2: 不同数据（2 样本/用户，seed=43）
+torchrun ... --max_samples_per_user 2 --sample_seed 43
+
+# Step 3: 更多数据（5 样本/用户）
+torchrun ... --max_samples_per_user 5 --sample_seed 42
+
+# Step 4: 完整训练（10 样本/用户）
+torchrun ... --max_samples_per_user 10
+```
+
+**集成学习**：
+```bash
+# 训练多个模型，每个使用不同的采样
+for seed in 42 43 44; do
+    torchrun ... --max_samples_per_user 2 --sample_seed $seed
+done
+
+# 推理时使用模型集成
+```
 
 ## 验证集
 

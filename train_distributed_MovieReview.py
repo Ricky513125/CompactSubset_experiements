@@ -32,6 +32,7 @@ from data_loader_movie_review import (
     split_movie_reviews_by_time,
     format_movie_review_prompt
 )
+from sample_per_user import sample_per_user  # 新增：用户采样
 
 # 复用动态Padding数据集
 from train_with_dynamic_padding_Lovink import DynamicPaddingDataset, dynamic_padding_collate_fn
@@ -170,6 +171,17 @@ def main():
                        help='DeepSpeed配置文件路径')
     parser.add_argument('--disable_flash_attn', action='store_true',
                        help='禁用FlashAttention 2')
+    
+    # 新增：每用户采样参数
+    parser.add_argument('--max_samples_per_user', type=int, default=None,
+                       help='每个用户最多保留多少个样本（用于减少训练数据量）')
+    parser.add_argument('--sample_seed', type=int, default=42,
+                       help='采样随机种子（默认：42，保证可复现）')
+    
+    # 新增：每用户一个样本模式
+    parser.add_argument('--one_sample_per_user', action='store_true',
+                       help='每个用户只生成1个样本（用前n-1条历史预测第n条，大幅减少训练时间）')
+    
     parser.add_argument('--wandb_project', type=str, default='MovieReview',
                        help='Weights & Biases项目名称')
     parser.add_argument('--wandb_run_name', type=str, default=None,
@@ -271,11 +283,27 @@ def main():
         data_file = str(Path(__file__).parent / data_file)
     
     raw_data = load_movie_review_data(data_file)
-    all_samples = extract_movie_review_samples(raw_data, debug=is_main_process)
+    all_samples = extract_movie_review_samples(
+        raw_data, 
+        one_sample_per_user=args.one_sample_per_user,  # 🔥 新增：启用每用户一个样本模式
+        debug=is_main_process
+    )
     
     if is_main_process:
         print(f"数据文件: {data_file}")
         print(f"提取了 {len(all_samples)} 个样本")
+        if args.one_sample_per_user:
+            print(f"  ✅ 每用户一个样本模式：用前n-1条历史预测第n条")
+    
+    # 新增：每用户采样（如果指定了 max_samples_per_user 且未启用 one_sample_per_user）
+    if args.max_samples_per_user is not None and not args.one_sample_per_user:
+        if is_main_process:
+            print(f"\n对每个用户进行采样（每用户最多 {args.max_samples_per_user} 个样本）...")
+        all_samples = sample_per_user(
+            all_samples,
+            max_samples_per_user=args.max_samples_per_user,
+            random_seed=args.sample_seed
+        )
     
     # 获取数据划分比例
     data_split = config.get('data_split', {})

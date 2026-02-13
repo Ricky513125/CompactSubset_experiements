@@ -258,12 +258,13 @@ def main():
         print(f"提取了 {len(all_samples)} 个训练样本")
     
     # 新增：每用户采样（如果指定了 max_samples_per_user）
-    if args.max_samples_per_user is not None and is_main_process:
-        print(f"\n对每个用户进行采样（每用户最多 {args.max_samples_per_user} 个样本）...")
+    if args.max_samples_per_user is not None:
+        if is_main_process:
+            print(f"\n对每个用户进行采样（每用户最多 {args.max_samples_per_user} 个样本）...")
         all_samples = sample_per_user(
             all_samples,
             max_samples_per_user=args.max_samples_per_user,
-            random_seed=args.sample_seed+epoch
+            random_seed=args.sample_seed
         )
     
     # 添加历史信息

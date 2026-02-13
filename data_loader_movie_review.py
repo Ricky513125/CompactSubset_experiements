@@ -29,20 +29,25 @@ def load_movie_review_data(file_path: str) -> List[Dict[str, Any]]:
 
 def extract_movie_review_samples(
     raw_data: List[Dict[str, Any]], 
+    one_sample_per_user: bool = False,
     debug: bool = False
 ) -> List[Dict[str, Any]]:
     """
     将原始影评数据转换为训练样本格式
     
-    每条影评转换为一个样本：
-    - user_profile: 用户信息
-    - context: 之前的影评历史（作为上下文）
-    - next_question: 当前要预测的影评
-    - continuation_prefix: 电影名（作为prompt）
-    - timestamp: 时间戳
+    两种模式：
+    1. one_sample_per_user=False（默认）：每条影评转换为一个样本
+       - 用户有100条影评 → 生成100个样本
+       - 样本1: [] → r1, 样本2: [r1] → r2, ..., 样本100: [r1..r99] → r100
+    
+    2. one_sample_per_user=True：每个用户只生成1个样本
+       - 用户有100条影评 → 生成1个样本
+       - 样本: [r1..r99] → r100（用前n-1条预测第n条）
+       - **大幅减少训练数据量，缩短训练时间**
     
     Args:
         raw_data: 原始数据
+        one_sample_per_user: 是否每个用户只生成一个样本（默认False）
         debug: 是否输出调试信息
         
     Returns:
@@ -68,17 +73,24 @@ def extract_movie_review_samples(
                 print(f"任务描述: {task_desc}")
                 print(f"影评总数: {len(reviews)}")
             
-            # 为每条影评创建一个训练样本
-            for i, review in enumerate(reviews):
-                # 之前的所有影评作为历史上下文
-                history_reviews = reviews[:i] if i > 0 else []
+            if one_sample_per_user:
+                # 🔥 新模式：每个用户只生成1个样本
+                # 使用前 n-1 条作为历史，预测第 n 条
+                if len(reviews) < 2:
+                    if debug:
+                        print(f"  ⚠️ 跳过该用户（影评数 < 2）")
+                    continue
+                
+                # 所有影评除最后一条作为历史
+                history_reviews = reviews[:-1]
+                last_review = reviews[-1]
                 
                 sample = {
                     'user_profile': user_profile,
                     'user_hash': user_profile.get('name', 'unknown'),
                     'task_description': task_desc,
                     
-                    # 历史影评（作为上下文）
+                    # 历史影评（前 n-1 条）
                     'history': [
                         {
                             'movie': h.get('continuation_prefix', '').rstrip(': '),
@@ -88,21 +100,63 @@ def extract_movie_review_samples(
                         for h in history_reviews
                     ],
                     
-                    # 当前电影信息
-                    'movie_name': review.get('continuation_prefix', '').rstrip(': '),
-                    'timestamp': review.get('timestamp', ''),
+                    # 当前电影信息（第 n 条）
+                    'movie_name': last_review.get('continuation_prefix', '').rstrip(': '),
+                    'timestamp': last_review.get('timestamp', ''),
                     
-                    # 目标：要预测的影评
-                    'next_question': review.get('continuation', ''),
+                    # 目标：要预测的影评（第 n 条）
+                    'next_question': last_review.get('continuation', ''),
                     
                     # context保持空列表（兼容现有框架）
-                    'context': review.get('context', []),
+                    'context': last_review.get('context', []),
                     
-                    # 原始数据（用于调试）
-                    'raw_review': review
+                    # 元数据
+                    'total_reviews': len(reviews),
+                    'history_count': len(history_reviews),
+                    'raw_review': last_review
                 }
                 
                 all_samples.append(sample)
+                
+                if debug:
+                    print(f"  生成1个样本: {len(history_reviews)}条历史 → 预测第{len(reviews)}条")
+            
+            else:
+                # 原模式：为每条影评创建一个训练样本
+                for i, review in enumerate(reviews):
+                    # 之前的所有影评作为历史上下文
+                    history_reviews = reviews[:i] if i > 0 else []
+                    
+                    sample = {
+                        'user_profile': user_profile,
+                        'user_hash': user_profile.get('name', 'unknown'),
+                        'task_description': task_desc,
+                        
+                        # 历史影评（作为上下文）
+                        'history': [
+                            {
+                                'movie': h.get('continuation_prefix', '').rstrip(': '),
+                                'review': h.get('continuation', ''),
+                                'timestamp': h.get('timestamp', '')
+                            }
+                            for h in history_reviews
+                        ],
+                        
+                        # 当前电影信息
+                        'movie_name': review.get('continuation_prefix', '').rstrip(': '),
+                        'timestamp': review.get('timestamp', ''),
+                        
+                        # 目标：要预测的影评
+                        'next_question': review.get('continuation', ''),
+                        
+                        # context保持空列表（兼容现有框架）
+                        'context': review.get('context', []),
+                        
+                        # 原始数据（用于调试）
+                        'raw_review': review
+                    }
+                    
+                    all_samples.append(sample)
             
             if debug:
                 print(f"生成样本数: {len(all_samples)}")

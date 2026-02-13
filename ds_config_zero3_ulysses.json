@@ -31,12 +31,18 @@
     "stage3_gather_16bit_weights_on_model_save": true
   },
   
+  "sequence_parallel": {
+    "enabled": true,
+    "size": 8,
+    "type": "all_to_all"
+  },
+  
   "activation_checkpointing": {
     "partition_activations": true,
-    "cpu_checkpointing": true,
+    "cpu_checkpointing": false,
     "contiguous_memory_optimization": true,
     "synchronize_checkpoint_boundary": false,
-    "number_checkpoints": 8,
+    "number_checkpoints": 4,
     "profile": false
   },
   
