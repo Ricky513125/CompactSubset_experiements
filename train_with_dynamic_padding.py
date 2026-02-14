@@ -93,7 +93,7 @@ class DynamicPaddingDataset(Dataset):
     优化版数据集：不做padding，返回原始长度的tensor
     padding将在collate_fn中动态进行
     """
-    def __init__(self, samples, tokenizer, max_length=32768, use_profile=True, use_history=True, use_context=True, verbose=False, use_detailed_template=True, max_context_turns=15, template_filename=None):
+    def __init__(self, samples, tokenizer, max_length=32768, use_profile=True, use_history=True, use_context=True, verbose=False, use_detailed_template=True, max_context_turns=15, template_filename=None, require_token_type_ids=None):
         # 使用绝对路径导入，确保使用当前目录的模块
         import sys
         from pathlib import Path
@@ -130,6 +130,16 @@ class DynamicPaddingDataset(Dataset):
         self.max_context_turns = max_context_turns  # 新增：最大保留的 context 轮次数
         self.template_filename = template_filename  # 新增：模板文件名
         self.verbose = verbose  # 是否输出详细日志
+        
+        # ✅ 自动检测是否需要 token_type_ids（用于 Gemma3 模型）
+        if require_token_type_ids is None:
+            # 根据 tokenizer 自动判断
+            model_type = getattr(tokenizer, 'name_or_path', '').lower()
+            self.require_token_type_ids = 'gemma' in model_type
+            if self.require_token_type_ids and verbose:
+                print(f"✅ 检测到 Gemma 模型，将添加 token_type_ids")
+        else:
+            self.require_token_type_ids = require_token_type_ids
         
         # 截断统计
         self.truncation_stats = {
@@ -347,12 +357,19 @@ class DynamicPaddingDataset(Dataset):
         # 屏蔽padding token（虽然现在没有padding，但为了兼容性保留）
         labels[input_ids == self.tokenizer.pad_token_id] = -100
 
-        return {
+        result = {
             'input_ids': input_ids,
             'attention_mask': attention_mask,
             'labels': labels,
             'actual_length': len(input_ids)  # 记录实际长度，用于调试
         }
+        
+        # ✅ 只有 Gemma3 模型需要时才添加 token_type_ids
+        if self.require_token_type_ids:
+            token_type_ids = torch.zeros_like(input_ids)
+            result['token_type_ids'] = token_type_ids
+        
+        return result
 
 
 def dynamic_padding_collate_fn(examples, tokenizer):
@@ -374,6 +391,7 @@ def dynamic_padding_collate_fn(examples, tokenizer):
     padded_input_ids = []
     padded_attention_mask = []
     padded_labels = []
+    padded_token_type_ids = []  # ✅ 添加 token_type_ids
     
     for ex in examples:
         seq_len = ex['input_ids'].shape[0]
@@ -402,10 +420,23 @@ def dynamic_padding_collate_fn(examples, tokenizer):
                 torch.full((pad_len,), -100, dtype=torch.long)
             ])
         )
+        
+        # ✅ Padding token_type_ids
+        if 'token_type_ids' in ex:
+            padded_token_type_ids.append(
+                torch.cat([
+                    ex['token_type_ids'],
+                    torch.zeros(pad_len, dtype=torch.long)
+                ])
+            )
     
     batch['input_ids'] = torch.stack(padded_input_ids)
     batch['attention_mask'] = torch.stack(padded_attention_mask)
     batch['labels'] = torch.stack(padded_labels)
+    
+    # ✅ 添加 token_type_ids 到 batch
+    if padded_token_type_ids:
+        batch['token_type_ids'] = torch.stack(padded_token_type_ids)
     
     # 添加其他元信息（如果有）
     if 'actual_length' in examples[0]:
