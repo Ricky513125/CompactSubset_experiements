@@ -6,8 +6,7 @@
     "checkpoint_dir": "/mnt/parallel/checkpoints"
   },
   "data": {
-    "train_path": "/mnt/parallel/GIDigitalTwinBench/RealSelf/REALTALK/train.json",
-    "test_path": "/mnt/parallel/GIDigitalTwinBench/RealSelf/REALTALK/test.json"
+    "train_path": "/mnt/parallel/GIDigitalTwinBench/RealSelf/REALTALK/train.json"
   },
   "training": {
     "batch_size": 1,

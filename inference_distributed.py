@@ -93,6 +93,60 @@ import re
 
 
 
+def cleanup_generated_text(text: str) -> str:
+    """
+    清洗生成的文本：
+    1. 移除emoji表情符号
+    2. 清理过多的重复字符和标点符号
+    3. 规范化空白字符
+    
+    Args:
+        text: 原始生成文本
+    
+    Returns:
+        清洗后的文本
+    """
+    import re
+    
+    if not text:
+        return text
+    
+    # 1. 移除emoji和特殊符号
+    # Unicode emoji范围
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        "\U00002702-\U000027B0"
+        "\U000024C2-\U0001F251"
+        "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+        "\U0001FA00-\U0001FA6F"  # Chess Symbols
+        "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+        "\U00002600-\U000026FF"  # Miscellaneous Symbols
+        "]+",
+        flags=re.UNICODE
+    )
+    text = emoji_pattern.sub('', text)
+    
+    # 2. 清理过多的重复字符（保留最多2个）
+    # 例如："哈哈哈哈哈" -> "哈哈", "!!!!!!" -> "!!"
+    text = re.sub(r'(.)\1{2,}', r'\1\1', text)
+    
+    # 3. 清理过多的重复标点符号（保留最多3个）
+    # 例如："。。。。。" -> "。。。", "？？？？" -> "？？？"
+    text = re.sub(r'([。！？!?.,;:：；，、])\1{3,}', r'\1\1\1', text)
+    
+    # 4. 清理连续的空白字符
+    text = re.sub(r'\s+', ' ', text)
+    
+    # 5. 去除首尾空白
+    text = text.strip()
+    
+    return text
+
+
 def setup_distributed():
     """初始化分布式环境"""
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
@@ -175,8 +229,9 @@ def process_distributed(
     """分布式推理主函数"""
     
     if not use_detailed_template:
-        module_path = os.path.join(_current_dir, 'data_loader_more_data.py')
-        spec = importlib.util.spec_from_file_location("data_loader_more_data_local", module_path)
+        # 使用 data_loader.py（包含多语言task描述处理）
+        module_path = os.path.join(_current_dir, 'data_loader.py')
+        spec = importlib.util.spec_from_file_location("data_loader_local", module_path)
         data_loader_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(data_loader_module)
         build_simple_inference_prompt = data_loader_module.build_simple_inference_prompt
@@ -191,6 +246,7 @@ def process_distributed(
         print(f"  World Size (总进程数): {world_size}")
         print(f"  Rank (进程ID): {rank}")
         print(f"  Local Rank (本地GPU ID): {local_rank}")
+        print(f"  Dataset: {os.path.basename(scenario_path)}")  # 新增：显示数据集名称
         print("=" * 80)
     
     # 加载数据
@@ -280,7 +336,10 @@ def process_distributed(
             history_evidence = user_info['user_train_samples'][-3:]
         
         # 构建prompt
-        #  根据配置选择使用哪个 prompt 构建函数
+        # 根据数据集和配置选择合适的 prompt 构建函数
+        
+        # 检测数据集类型（从 scenario_path 中提取）
+        dataset_name = os.path.basename(scenario_path)
         
         if use_detailed_template:
             # 使用详细模板（支持 markdown 或 Lovink 风格）
@@ -299,17 +358,65 @@ def process_distributed(
             )
         else:
             # 使用简洁的标签格式（与训练时一致）
-            # build_simple_inference_prompt 已经在函数开始时通过 importlib 导入
-            messages = build_simple_inference_prompt(
-                context=context,
-                user_profile=user_info['user_profile'] if use_profile else None,
-                task_description=task_description,
-                history=history_evidence if use_history else None,
-                use_profile=use_profile,
-                use_history=use_history,
-                use_context=use_context,
-                max_context_turns=100
-            )
+            # 根据数据集类型选择相应的 prompt 构建函数
+            
+            if dataset_name == 'LovinkQuestionnaire':
+                # LovinkQuestionnaire 使用专用的问卷格式
+                # 注意：推理时通常不需要特殊的问卷格式，因为test_leaderboard已经是对话格式
+                # 如果确实需要，需要导入专用函数
+                messages = build_simple_inference_prompt(
+                    context=context,
+                    user_profile=user_info['user_profile'] if use_profile else None,
+                    task_description=task_description,
+                    history=history_evidence if use_history else None,
+                    use_profile=use_profile,
+                    use_history=use_history,
+                    use_context=use_context,
+                    max_context_turns=100
+                )
+            
+            elif dataset_name in ['DMSC', 'MovieReview']:
+                # DMSC 使用影评格式
+                # 注意：DMSC 的 test_leaderboard 格式与训练时不同
+                # 推理时使用通用对话格式即可
+                messages = build_simple_inference_prompt(
+                    context=context,
+                    user_profile=user_info['user_profile'] if use_profile else None,
+                    task_description=task_description,
+                    history=history_evidence if use_history else None,
+                    use_profile=use_profile,
+                    use_history=use_history,
+                    use_context=use_context,
+                    max_context_turns=100
+                )
+            
+            elif dataset_name == 'MovieLens':
+                # MovieLens 使用电影推荐格式
+                # 推理时使用通用对话格式即可
+                messages = build_simple_inference_prompt(
+                    context=context,
+                    user_profile=user_info['user_profile'] if use_profile else None,
+                    task_description=task_description,
+                    history=history_evidence if use_history else None,
+                    use_profile=use_profile,
+                    use_history=use_history,
+                    use_context=use_context,
+                    max_context_turns=100
+                )
+            
+            else:
+                # 其他数据集使用通用对话格式
+                # LovinkDialogue, RealPersonaChat, Chameleons, PERSONA_Bench, REALTALK
+                messages = build_simple_inference_prompt(
+                    context=context,
+                    user_profile=user_info['user_profile'] if use_profile else None,
+                    task_description=task_description,
+                    history=history_evidence if use_history else None,
+                    use_profile=use_profile,
+                    use_history=use_history,
+                    use_context=use_context,
+                    max_context_turns=100
+                )
         
         # 记录输入日志（前5个样本）
         if is_main_process and log_file and sample_idx <= 5:
@@ -455,10 +562,11 @@ def process_distributed(
                     new_continuation = result[0]
                     
                     # 注意：规范化已经在generate_continuations内部完成
-                    # 这里不需要再次规范化
+                    # 这里额外进行清洗（移除emoji、重复字符等）
+                    new_continuation = cleanup_generated_text(new_continuation)
                     
                     # 使用改进的去重逻辑
-                    if not is_too_similar(new_continuation, continuations):
+                    if new_continuation and not is_too_similar(new_continuation, continuations):
                         continuations.append(new_continuation)
                         generated_count += 1
             
@@ -482,9 +590,9 @@ def process_distributed(
                         emoji_bias_value=-100.0
                     )
                     if result and len(result) > 0:
-                        # 规范化已经在generate_continuations内部完成
-                        normalized_result = result[0]
-                        if not is_too_similar(normalized_result, continuations):
+                        # 规范化和清洗
+                        normalized_result = cleanup_generated_text(result[0])
+                        if normalized_result and not is_too_similar(normalized_result, continuations):
                             continuations.append(normalized_result)
                             generated_count += 1
                 except:
@@ -516,9 +624,10 @@ def process_distributed(
                     for beam_result in beam_results:
                         if generated_count >= num_samples:
                             break
-                        # 规范化已经在generate_continuations内部完成
-                        if not is_too_similar(beam_result, continuations):
-                            continuations.append(beam_result)
+                        # 规范化和清洗
+                        cleaned_result = cleanup_generated_text(beam_result)
+                        if cleaned_result and not is_too_similar(cleaned_result, continuations):
+                            continuations.append(cleaned_result)
                             generated_count += 1
             except Exception as e:
                 if rank == 0:
@@ -718,7 +827,17 @@ def main():
     # 处理数据集路径参数
     if args.dataset:
         # 使用 --dataset 参数，自动转换为完整路径
-        dataset_base_path = '/mnt/parallel/GIDigitalTwinBench/IdealSelf'
+        # 根据数据集名称选择对应的基础路径
+        if args.dataset in ['LovinkDialogue', 'LovinkQuestionnaire', 'RealPersonaChat']:
+            # IdealSelf 数据集
+            dataset_base_path = '/mnt/parallel/GIDigitalTwinBench/IdealSelf'
+        elif args.dataset in ['Chameleons', 'REALTALK', 'PERSONA_Bench', 'DMSC', 'MovieLens']:
+            # RealSelf 数据集
+            dataset_base_path = '/mnt/parallel/GIDigitalTwinBench/RealSelf'
+        else:
+            # 默认使用 IdealSelf
+            dataset_base_path = '/mnt/parallel/GIDigitalTwinBench/IdealSelf'
+        
         args.scenario_path = os.path.join(dataset_base_path, args.dataset)
     
     if not args.scenario_path:

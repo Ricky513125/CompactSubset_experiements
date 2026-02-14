@@ -950,8 +950,30 @@ def build_simple_inference_prompt(
         if profile_tags:
             system_parts.append("[USER_PROFILE]\n" + "\n".join(profile_tags))
     
-    # 2. TASK 部分 - 任务描述
+    # 2. TASK 部分 - 任务描述（支持多语言）
     task_text = task_description if task_description else "基于用户在 Lovink 对话中的历史数据，模拟该用户的对话行为模式"
+    
+    # 根据不同数据集转换为相应语言
+    English_flag = False
+    Japanese_flag = False
+    Chinese_flag = False
+    
+    if task_text == "基于角色在电影中的历史对话数据，模拟该角色的对话风格和行为模式":  # Chameleons
+        English_flag = True 
+        task_text = "Given the historical dialogue of a character in a movie, model the character's speaking style and behavioral patterns, and predict the next utterance the character would produce."
+    elif task_text == "基于用户在 Reddit 上的历史对话数据，模拟该用户的对话风格和行为模式":  # PERSONA_Bench
+        English_flag = True 
+        task_text = "Given the historical dialogue of a user on Reddit, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce."
+    elif task_text == "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式":  # RealPersonaChat
+        Japanese_flag = True 
+        task_text = "RealPersonaChatデータセットにおけるユーザーの過去の会話データに基づき、当該ユーザーの会話行動パターンをシミュレートする："
+    elif task_text == "基于用户在 REALTALK 数据集中的历史对话数据，模拟该用户的对话风格和行为模式":  # REALTALK
+        English_flag = True
+        task_text = "Given the historical dialogue of a user on REALTALK, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce."
+    else:
+        # 其他数据集（LovinkDialogue, LovinkQuestionnaire, DMSC, MovieLens）保持中文
+        Chinese_flag = True
+    
     system_parts.append(f"[TASK]\n{task_text}")
     
     # 3. RECENT_DIALOGUE 部分 - 限制轮次数
@@ -982,8 +1004,18 @@ def build_simple_inference_prompt(
         
         system_parts.append("\n".join(dialogue_parts))
     
-    # 4. 预测指令
-    system_parts.append("\nPredict the user's next message:")
+    # 4. 预测指令（根据语言类型）
+    if Japanese_flag:
+        predict_instruction = "\nユーザーの次のメッセージを予測してください："
+    elif English_flag:
+        predict_instruction = "\nPredict the user's next message:"
+    elif Chinese_flag:
+        predict_instruction = "\n预测用户的下一条消息："
+    else:
+        # 默认使用英文（兜底）
+        predict_instruction = "\nPredict the user's next message:"
+    
+    system_parts.append(predict_instruction)
     
     # 组合成 system message
     system_content = "\n\n".join(system_parts)
