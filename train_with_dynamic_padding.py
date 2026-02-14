@@ -253,14 +253,32 @@ class DynamicPaddingDataset(Dataset):
 
 
         # 2. 生成完整文本
-        full_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-        # 修正：应该生成assistant角色的回复（目标用户）
-        generation_suffix = "<|im_start|>assistant\n"
-        full_prompt = full_prompt.strip() + generation_suffix
-        im_end_token = "<|im_end|>"
-        full_text = full_prompt + target_answer + im_end_token
+        # ✅ 特殊处理 Gemma3 模型的 chat template
+        is_gemma = 'gemma' in getattr(self.tokenizer, 'name_or_path', '').lower()
+        
+        if is_gemma:
+            # Gemma3 不支持 system role，需要手动构建格式
+            # Gemma3 格式: <bos><start_of_turn>user\n{content}<end_of_turn>\n<start_of_turn>model\n{response}<end_of_turn>
+            if messages and messages[0].get('role') == 'system':
+                system_content = messages[0]['content']
+                # 将 system content 作为 user 的第一条消息
+                full_prompt = f"<start_of_turn>user\n{system_content}<end_of_turn>\n<start_of_turn>model\n"
+                full_text = full_prompt + target_answer + "<end_of_turn>"
+            else:
+                # 如果没有 system message，直接生成
+                full_prompt = "<start_of_turn>model\n"
+                full_text = full_prompt + target_answer + "<end_of_turn>"
+        else:
+            # Qwen 和其他模型使用标准的 chat template
+            full_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+            # 修正：应该生成assistant角色的回复（目标用户）
+            generation_suffix = "<|im_start|>assistant\n"
+            full_prompt = full_prompt.strip() + generation_suffix
+            im_end_token = "<|im_end|>"
+            full_text = full_prompt + target_answer + im_end_token
         
         # ✅ 第二层保护：如果仍然超长，逐步从前往后删除对话轮次
+        im_end_token = "<end_of_turn>" if is_gemma else "<|im_end|>"
         target_with_end = target_answer + im_end_token
         target_tokens = len(self.tokenizer.encode(target_with_end, add_special_tokens=False))
         min_buffer = 64
@@ -312,9 +330,15 @@ class DynamicPaddingDataset(Dataset):
                             messages[0]['content'] = new_system
                             
                             # 重新生成并测试长度
-                            full_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-                            full_prompt = full_prompt.strip() + generation_suffix
-                            full_text = full_prompt + target_answer + im_end_token
+                            if is_gemma:
+                                full_prompt = f"<start_of_turn>user\n{messages[0]['content']}<end_of_turn>\n<start_of_turn>model\n"
+                                full_text = full_prompt + target_answer + "<end_of_turn>"
+                            else:
+                                full_prompt = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+                                generation_suffix = "<|im_start|>assistant\n"
+                                full_prompt = full_prompt.strip() + generation_suffix
+                                full_text = full_prompt + target_answer + im_end_token
+                            
                             full_length = len(self.tokenizer.encode(full_text, add_special_tokens=False))
         
         # 更新截断统计

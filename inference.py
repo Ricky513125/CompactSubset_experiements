@@ -117,20 +117,34 @@ def generate_continuations(
     emoji_suppression_mode="normal",  # ✅ 新增：emoji 抑制模式 ("normal", "adaptive", "off")
     emoji_bias_value=-100.0,  # ✅ 新增：emoji 抑制强度
 ):
-    # 与训练时保持一致：使用 add_generation_prompt=False，然后手动添加引导符
-    # 训练时的逻辑：full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-    #                generation_suffix = "<|im_start|>user\n"
-    #                full_prompt = full_prompt.strip() + generation_suffix
-    text = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=False  # 与训练时保持一致
-    )
+    # ✅ 检测是否为 Gemma 模型
+    is_gemma = 'gemma' in getattr(tokenizer, 'name_or_path', '').lower()
     
-    # 手动添加引导符（与训练时完全一致）
-    # 修正：应该生成assistant角色的回复（目标用户）
-    generation_suffix = "<|im_start|>assistant\n"
-    text = text.strip() + generation_suffix
+    if is_gemma:
+        # Gemma3 不支持 system role，需要手动构建格式
+        # Gemma3 格式: <start_of_turn>user\n{content}<end_of_turn>\n<start_of_turn>model\n
+        if messages and messages[0].get('role') == 'system':
+            system_content = messages[0]['content']
+            # 将 system content 作为 user 的第一条消息
+            text = f"<start_of_turn>user\n{system_content}<end_of_turn>\n<start_of_turn>model\n"
+        else:
+            # 如果没有 system message，直接生成
+            text = "<start_of_turn>model\n"
+    else:
+        # Qwen 和其他模型：与训练时保持一致：使用 add_generation_prompt=False，然后手动添加引导符
+        # 训练时的逻辑：full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+        #                generation_suffix = "<|im_start|>user\n"
+        #                full_prompt = full_prompt.strip() + generation_suffix
+        text = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=False  # 与训练时保持一致
+        )
+        
+        # 手动添加引导符（与训练时完全一致）
+        # 修正：应该生成assistant角色的回复（目标用户）
+        generation_suffix = "<|im_start|>assistant\n"
+        text = text.strip() + generation_suffix
     
     # 如果是日语任务，在末尾添加日语引导词，迫使模型进入日语语境
     if is_japanese_task:
