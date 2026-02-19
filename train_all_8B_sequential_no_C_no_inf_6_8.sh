@@ -232,8 +232,7 @@ run_training "DMSC" 29505 \
     --val_ratio 0.1 \
     --wandb_project Qwen3_8B-DMSC \
     --wandb_run_name one_per_user_8B_0213 \
-    --prompt_style simple \
-    --one_sample_per_user
+    --prompt_style simple
 
 
 # 任务 3: LovinkDialogue
@@ -247,9 +246,7 @@ run_training "LovinkDialogue" 29510 \
     --val_ratio 0.1 \
     --wandb_project Qwen3_8B-LovinkDialogue \
     --wandb_run_name profile_context_8B_sampled_seed42 \
-    --prompt_style simple \
-    --max_samples_per_user 2 \
-    --sample_seed 42
+    --prompt_style simple
 
 
 # 任务 4: LovinkQuestionnaire
@@ -265,9 +262,7 @@ run_training "LovinkQuestionnaire" 29515 \
     --history_ratio 0.9 \
     --wandb_project Qwen3_8B-LovinkQuestionnaire \
     --wandb_run_name history_random_8B_sampled_seed42 \
-    --prompt_style simple \
-    --max_samples_per_user 2 \
-    --sample_seed 42
+    --prompt_style simple
 
 
 # 任务 5: MovieLens
@@ -281,10 +276,8 @@ run_training "MovieLens" 29520 \
     --val_ratio 0.1 \
     --history_strategy random_targets \
     --wandb_project Qwen3_8B-MovieLens \
-    --wandb_run name history_random_targets_8B_sampled_seed42 \
-    --prompt_style simple \
-    --max_samples_per_user 2 \
-    --sample_seed 42
+    --wandb_run_name history_random_targets_8B_sampled_seed42 \
+    --prompt_style simple
 
 
 # 任务 6: PERSONA_Bench
@@ -298,9 +291,7 @@ run_training "PERSONA_Bench" 29525 \
     --val_ratio 0.1 \
     --wandb_project Qwen3_8B-PERSONA_Bench \
     --wandb_run_name history_context_8B_sampled_seed42 \
-    --prompt_style simple \
-    --max_samples_per_user 2 \
-    --sample_seed 42
+    --prompt_style simple
 
 
 # 任务 7: RealPersonaChat
@@ -314,9 +305,7 @@ run_training "RealPersonaChat" 29530 \
     --val_ratio 0.1 \
     --wandb_project Qwen3_8B-RealPersonaChat \
     --wandb_run_name profile_context_8B_sampled_seed42 \
-    --prompt_style simple \
-    --max_samples_per_user 2 \
-    --sample_seed 42
+    --prompt_style simple
 
 
 # 任务 8: REALTALK
@@ -330,9 +319,7 @@ run_training "REALTALK" 29535 \
     --val_ratio 0.1 \
     --wandb_project Qwen3_8B-REALTALK \
     --wandb_run_name context_8B_sampled_seed42 \
-    --prompt_style simple \
-    --max_samples_per_user 2 \
-    --sample_seed 42
+    --prompt_style simple
 
 
 echo "=========================================="
