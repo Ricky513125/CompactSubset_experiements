@@ -13,7 +13,7 @@ JOB_ID="$(date +%Y%m%d_%H%M%S)_$$"
 # 发送邮箱（Gmail）
 SENDER_EMAIL="${SENDER_EMAIL:-lingyuli513125@gmail.com}"
 # 发送邮箱密码（Gmail应用密码，通过环境变量设置，建议使用 Gmail App Password）
-SENDER_PASSWORD="${SENDER_PASSWORD:-eogu yaxv bhmn xluf}"
+SENDER_PASSWORD="${SENDER_PASSWORD:-}"
 # 收件邮箱
 RECIPIENT_EMAIL="${RECIPIENT_EMAIL:-lilingyu513125@163.com}"
 # 如果未设置发送邮箱密码，将跳过邮件发送
@@ -219,6 +219,24 @@ run_training() {
 }
 
 # ===== 依次运行 8 个训练任务 =====
+
+
+# 任务 2: DMSC
+run_training "DMSC" 29505 \
+    train_distributed_MovieReview.py \
+    --config config_DMSC.json \
+    --deepspeed ds_config_zero2.json \
+    --ablation_config profile_and_history \
+    --output_dir outputs/DMSC_8B_one_per_user_0213 \
+    --max_epochs 50 \
+    --val_ratio 0.1 \
+    --wandb_project Qwen3_8B-DMSC \
+    --wandb_run_name one_per_user_8B_0213 \
+    --prompt_style simple
+
+
+
+
 # 任务 5: MovieLens
 run_training "MovieLens" 29520 \
     train_distributed_MovieLens.py \
@@ -231,48 +249,6 @@ run_training "MovieLens" 29520 \
     --history_strategy random_targets \
     --wandb_project Qwen3_8B-MovieLens \
     --wandb_run_name history_random_targets_8B_sampled_seed42 \
-    --prompt_style simple
-
-
-# 任务 6: PERSONA_Bench
-run_training "PERSONA_Bench" 29525 \
-    train_distributed_PERSONA_Bench.py \
-    --config config_PERSONA_Bench.json \
-    --deepspeed ds_config_zero2.json \
-    --ablation_config history_and_context \
-    --output_dir outputs/PERSONA_Bench_8B_history_context_sampled_seed42 \
-    --max_epochs 50 \
-    --val_ratio 0.1 \
-    --wandb_project Qwen3_8B-PERSONA_Bench \
-    --wandb_run_name history_context_8B_sampled_seed42 \
-    --prompt_style simple
-
-
-# 任务 7: RealPersonaChat
-run_training "RealPersonaChat" 29530 \
-    train_distributed_RealPersonaChat.py \
-    --config config_RealPersonaChat.json \
-    --deepspeed ds_config_zero2.json \
-    --ablation_config profile_and_context \
-    --output_dir outputs/RealPersonaChat_8B_profile_context_sampled_seed42 \
-    --max_epochs 50 \
-    --val_ratio 0.1 \
-    --wandb_project Qwen3_8B-RealPersonaChat \
-    --wandb_run_name profile_context_8B_sampled_seed42 \
-    --prompt_style simple
-
-
-# 任务 8: REALTALK
-run_training "REALTALK" 29535 \
-    train_distributed_REALTALK.py \
-    --config config_REALTALK.json \
-    --deepspeed ds_config_zero2.json \
-    --ablation_config context_only \
-    --output_dir outputs/REALTALK_8B_context_sampled_seed42 \
-    --max_epochs 50 \
-    --val_ratio 0.1 \
-    --wandb_project Qwen3_8B-REALTALK \
-    --wandb_run_name context_8B_sampled_seed42 \
     --prompt_style simple
 
 

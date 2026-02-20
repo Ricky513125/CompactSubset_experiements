@@ -15,7 +15,9 @@ from torch.utils.data.distributed import DistributedSampler
 # from data_loader import load_train_data, extract_training_samples, get_user_only_history # 旧版本 复杂的训练prompt 
 from data_loader import load_train_data, get_user_only_history # 新版本 简短的训练prompt
 from train_with_dynamic_padding import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val
-from data_loader_movielens_history import extract_movielens_samples, add_history_to_samples_movielens, sample_prediction_targets_per_user
+# from data_loader_movielens_history import extract_movielens_samples, add_history_to_samples_movielens, sample_prediction_targets_per_user
+# 注意：上面的导入会失败，因为 data_loader_movielens_history.py 是空文件
+# 这些函数需要在本文件中实现
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -72,6 +74,230 @@ def cleanup_distributed():
     """清理分布式训练环境"""
     if dist.is_initialized():
         dist.destroy_process_group()
+
+
+def extract_movielens_samples(
+    raw_data: List[Dict[str, Any]], 
+    debug: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    将原始 MovieLens 数据转换为训练样本格式
+    
+    Args:
+        raw_data: 原始数据
+        debug: 是否输出调试信息
+        
+    Returns:
+        训练样本列表（按时间顺序）
+    """
+    all_samples = []
+    
+    for user_data in raw_data:
+        user_profile = user_data.get('user', {}).get('profile', {})
+        task_desc = user_data.get('task', {}).get('description', '')
+        
+        # 获取评分数据（应该已按时间排序）
+        task_collections = user_data.get('task', {}).get('task_behavior_collections', [])
+        
+        for collection in task_collections:
+            # MovieLens 数据的 type 可能是 'movie_rating' 或 'movie_review'
+            collection_type = collection.get('type', '')
+            if collection_type not in ['movie_rating', 'movie_review']:
+                continue
+            
+            ratings = collection.get('data', [])
+            
+            if debug:
+                print(f"处理用户: {user_profile.get('name', 'Unknown')}")
+                print(f"任务描述: {task_desc}")
+                print(f"评分总数: {len(ratings)}")
+            
+            # 记录当前用户生成的样本数
+            user_sample_count = 0
+            
+            # 为每条评分创建一个训练样本
+            for i, rating in enumerate(ratings):
+                # 之前的所有评分作为潜在历史
+                # （实际历史会在 add_history_to_samples_movielens 中添加）
+                
+                sample = {
+                    'user_profile': user_profile,
+                    'user_hash': user_profile.get('name', 'unknown'),
+                    'task_description': task_desc,
+                    
+                    # 历史评分（暂时为空，稍后添加）
+                    'history': [],
+                    
+                    # 当前电影信息
+                    'movie_info': rating.get('continuation_prefix', '').rstrip(': '),
+                    'timestamp': rating.get('timestamp', ''),
+                    
+                    # 目标：要预测的评分
+                    'next_question': rating.get('continuation', ''),
+                    
+                    # context保持空列表（兼容现有框架）
+                    'context': rating.get('context', []),
+                    
+                    # 保存完整评分列表和当前索引（用于后续添加历史）
+                    'all_ratings': ratings,
+                    'rating_index': i,
+                    
+                    # 原始数据（用于调试）
+                    'raw_rating': rating
+                }
+                
+                all_samples.append(sample)
+                user_sample_count += 1
+            
+            if debug:
+                print(f"生成样本数: {user_sample_count}")
+    
+    return all_samples
+
+
+def add_history_to_samples_movielens(
+    all_samples: List[Dict[str, Any]],
+    history_strategy: str = 'all_previous',
+    history_ratio: float = 1.0,
+    fixed_history_count: int = None
+) -> List[Dict[str, Any]]:
+    """
+    为 MovieLens 样本添加历史信息
+    
+    Args:
+        all_samples: 所有训练样本
+        history_strategy: 历史策略
+            - 'all_previous': 所有之前的评分
+            - 'random': 随机选择一定比例的之前评分
+            - 'fixed_ratio': 固定比例的最近评分
+            - 'fixed_count': 固定数量的最近评分
+            - 'none': 不使用历史
+        history_ratio: 历史比例（用于 random 和 fixed_ratio 策略）
+        fixed_history_count: 固定历史数量（用于 fixed_count 策略）
+        
+    Returns:
+        添加了历史信息的样本列表
+    """
+    for sample in all_samples:
+        all_ratings = sample.get('all_ratings', [])
+        rating_index = sample.get('rating_index', 0)
+        
+        # 获取所有之前的评分
+        previous_ratings = all_ratings[:rating_index] if rating_index > 0 else []
+        
+        if not previous_ratings or history_strategy == 'none':
+            sample['history'] = []
+            continue
+        
+        # 根据策略选择历史
+        if history_strategy == 'all_previous':
+            selected_ratings = previous_ratings
+        
+        elif history_strategy == 'random':
+            # 随机选择一定比例
+            num_to_select = max(1, int(len(previous_ratings) * history_ratio))
+            selected_ratings = random.sample(previous_ratings, min(num_to_select, len(previous_ratings)))
+            # 保持时间顺序
+            selected_ratings = sorted(selected_ratings, key=lambda x: previous_ratings.index(x))
+        
+        elif history_strategy == 'fixed_ratio':
+            # 最近的固定比例
+            num_to_select = max(1, int(len(previous_ratings) * history_ratio))
+            selected_ratings = previous_ratings[-num_to_select:]
+        
+        elif history_strategy == 'fixed_count':
+            # 固定数量的最近评分
+            count = fixed_history_count if fixed_history_count else 10
+            selected_ratings = previous_ratings[-count:]
+        
+        else:
+            # 默认使用全部
+            selected_ratings = previous_ratings
+        
+        # 转换为历史格式
+        sample['history'] = [
+            {
+                'movie': r.get('continuation_prefix', '').rstrip(': '),
+                'rating': r.get('continuation', ''),
+                'timestamp': r.get('timestamp', '')
+            }
+            for r in selected_ratings
+        ]
+    
+    return all_samples
+
+
+def sample_prediction_targets_per_user(
+    all_samples: List[Dict[str, Any]],
+    max_targets_per_user: int = 2,
+    random_seed: int = 42,
+    debug: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    random_targets 策略：每个用户随机选N个作为预测目标，其余都作历史
+    
+    Args:
+        all_samples: 所有训练样本
+        max_targets_per_user: 每个用户作为预测目标的样本数
+        random_seed: 随机种子
+        debug: 是否输出调试信息
+        
+    Returns:
+        采样后的样本列表（已添加历史）
+    """
+    random.seed(random_seed)
+    
+    # 按用户分组
+    user_samples = {}
+    for sample in all_samples:
+        user_hash = sample.get('user_hash', 'unknown')
+        if user_hash not in user_samples:
+            user_samples[user_hash] = []
+        user_samples[user_hash].append(sample)
+    
+    selected_samples = []
+    total_history_count = 0
+    
+    for user_hash, samples in user_samples.items():
+        if len(samples) <= max_targets_per_user:
+            # 样本数不够，全部使用
+            selected_samples.extend(samples)
+            continue
+        
+        # 随机选择N个作为预测目标
+        target_samples = random.sample(samples, max_targets_per_user)
+        
+        # 将其他所有样本作为这N个目标的历史
+        history_samples = [s for s in samples if s not in target_samples]
+        
+        # 为每个目标样本添加历史
+        for target in target_samples:
+            target_index = target.get('rating_index', 0)
+            all_ratings = target.get('all_ratings', [])
+            
+            # 只使用时间戳在目标之前的评分作为历史
+            previous_ratings = [all_ratings[i] for i in range(target_index)]
+            
+            target['history'] = [
+                {
+                    'movie': r.get('continuation_prefix', '').rstrip(': '),
+                    'rating': r.get('continuation', ''),
+                    'timestamp': r.get('timestamp', '')
+                }
+                for r in previous_ratings
+            ]
+            
+            total_history_count += len(target['history'])
+        
+        selected_samples.extend(target_samples)
+    
+    if debug:
+        print(f"random_targets 策略结果:")
+        print(f"  原始样本数: {len(all_samples)}")
+        print(f"  选中样本数: {len(selected_samples)}")
+        print(f"  平均历史数/样本: {total_history_count / len(selected_samples):.1f}")
+    
+    return selected_samples
 
 
 def sample_per_user(

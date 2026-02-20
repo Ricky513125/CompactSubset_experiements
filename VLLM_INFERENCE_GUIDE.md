@@ -65,11 +65,11 @@ python inference_vllm.py \
 ```
 
 python inference_vllm.py \
-    --checkpoint_dir outputs/DMSC_8B_one_per_user_0213 \
-    --dataset DMSC \
-    --ablation_config profile_and_history \
+    --checkpoint_dir outputs/Chameleons_8B_context_full \
+    --dataset Chameleons \
+    --ablation_config context_only \
     --num_samples 5 \
-    --output_dir outputs/leaderboards/DMSC_vllm_8gpu \
+    --output_dir outputs/leaderboards/Chameleons_vllm_8gpu \
     --tensor_parallel_size 8 \
     --gpu_memory_utilization 0.9
 

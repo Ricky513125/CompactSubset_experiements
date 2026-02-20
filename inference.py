@@ -23,7 +23,7 @@ try:
     PEFT_AVAILABLE = True
 except ImportError:
     PEFT_AVAILABLE = False
-    print("警告: peft 库未安装，无法加载 LoRA 模型")
+    # 不在这里打印警告，只在真正需要加载 LoRA 模型时才警告
 
 
 def load_test_leaderboard(test_leaderboard_path: str) -> list:
@@ -867,6 +867,11 @@ def process_scenario(
     # 检查是否是 LoRA 模型（检查是否存在 adapter_config.json）
     adapter_config_path = os.path.join(checkpoint_dir, 'adapter_config.json')
     is_lora_model = os.path.exists(adapter_config_path)
+    
+    if is_lora_model and not PEFT_AVAILABLE:
+        print("警告: peft 库未安装，无法加载 LoRA 模型")
+        print("  请安装 peft: pip install peft")
+        raise RuntimeError("需要 peft 库来加载 LoRA 模型，但 peft 未安装")
     
     if is_lora_model and PEFT_AVAILABLE:
         print("  检测到 LoRA 模型，使用 PeftModel 加载...")
