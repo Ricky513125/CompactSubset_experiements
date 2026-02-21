@@ -1,0 +1,3270 @@
+[
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "おはようございます。"
+      },
+      {
+        "role": "assistant",
+        "content": "おはようございます。"
+      },
+      {
+        "role": "user",
+        "content": "昨日からすごく涼しくなりましたね。今朝は寒いくらいです。そちらはどうですか？"
+      },
+      {
+        "role": "assistant",
+        "content": "すごく寒いです！そろそろニット着たいですね。"
+      },
+      {
+        "role": "user",
+        "content": "ですねー。長袖とかもう出しました？"
+      },
+      {
+        "role": "assistant",
+        "content": "出してます出してます。北海道なので寒くて！"
+      },
+      {
+        "role": "user",
+        "content": "北海道ですか！私は千葉です。北海道の網走は先日30度だったとニュースでみました。"
+      },
+      {
+        "role": "assistant",
+        "content": "千葉！都会ですね…！30度はまるで真夏です。"
+      },
+      {
+        "role": "user",
+        "content": "こちらは一昨日まで日中が30度で10月とは思えませんでした。"
+      },
+      {
+        "role": "assistant",
+        "content": "本当ですか！まだ半袖着ますか？"
+      },
+      {
+        "role": "user",
+        "content": "昨日まで着てました。今日はさすがに無理ですね。今15度なんです。"
+      },
+      {
+        "role": "assistant",
+        "content": "急にガクッと落ちましたよね！千葉では15度はもう冬って感じですか？"
+      },
+      {
+        "role": "user",
+        "content": "秋って感じですね。冬は0度近くまでは行きますよ。北海道から見たらぬるいかもしれませんが。"
+      },
+      {
+        "role": "assistant",
+        "content": "意外と低くなるんですね。十分寒いと思います。"
+      },
+      {
+        "role": "user",
+        "content": "雪も何度か積もりますよ。私、地元が九州で北海道までは行ったことがないんです。"
+      },
+      {
+        "role": "assistant",
+        "content": "九州なんですか！真逆ですね…！九州の冬はあったかいですか？"
+      },
+      {
+        "role": "user",
+        "content": "そうでもなかったです。盆地だったのもありますが、積雪してましたし、0度近くまでは冷えてましたね。"
+      },
+      {
+        "role": "assistant",
+        "content": "九州でも積雪するんですね！冬寒く夏暑いの大変ですよね"
+      },
+      {
+        "role": "user",
+        "content": "積雪しますよーでも一日で溶けます。私が居た頃は夏は最高30度くらいでした。"
+      },
+      {
+        "role": "assistant",
+        "content": "最高30度！熱中症とか大変そうですね"
+      },
+      {
+        "role": "user",
+        "content": "30度は何日かだけでほとんど20度後半くらいでした。そういえば熱中症は気にしたことなかったですね。"
+      }
+    ],
+    "next_question": "ええええ、でも暑い…。熱中症、意外と九州でひどいみたいな話聞かないかもです。",
+    "user_profile": {
+      "name": "HP",
+      "gender": "Female",
+      "age": 20,
+      "profession": "Four-year college",
+      "residence": "Hokkaido",
+      "life_experience": "大学4年生である。\n演劇サークルに入っている。\n最近は通学時に読書をしている。\n休日は出かけることが多いが、用事がないときは家にいる。\n一人カラオケが好きだ。\n友人や恋人と出かけることも好きで、ご飯を食べに行くことが多い。\n優柔不断だ。\n作業環境を工夫するのが好きだ。\nネガティブだとよく言われる。\n最近友達に教えてもらい、麻雀をよくしている。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 3.6666666666666665,
+          "Conscientiousness": 2.8333333333333335,
+          "Extraversion": 4.666666666666667,
+          "Agreeableness": 4.416666666666667,
+          "Neuroticism": 4.75
+        },
+        "kiss18": {
+          "BasicSkill": 3.0,
+          "AdvancedSkill": 3.0,
+          "EmotionalManagementSkill": 3.0,
+          "OffenceManagementSkill": 2.6666666666666665,
+          "StressManagementSkill": 3.0,
+          "PlanningSkill": 3.0
+        },
+        "atq": {
+          "Fear": 4.428571428571429,
+          "Frustration": 3.5,
+          "Sadness": 5.142857142857143,
+          "Discomfort": 5.333333333333333,
+          "ActivationControl": 3.0,
+          "AttentionalControl": 3.0,
+          "InhibitoryControl": 4.0,
+          "Sociability": 4.8,
+          "HighIntensityPleasure": 4.0,
+          "PositiveAffect": 3.8,
+          "NeutralPerceptualSensitivity": 4.6,
+          "AffectivePerceptualSensitivity": 3.0,
+          "AssociativeSensitivity": 4.4
+        },
+        "sms": {
+          "Extraversion": 3.1,
+          "OtherDirectedness": 2.6666666666666665,
+          "Acting": 2.75
+        },
+        "ios": 3
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "HP",
+        "gender": "Female",
+        "age": 20,
+        "profession": "Four-year college",
+        "residence": "Hokkaido",
+        "life_experience": "大学4年生である。\n演劇サークルに入っている。\n最近は通学時に読書をしている。\n休日は出かけることが多いが、用事がないときは家にいる。\n一人カラオケが好きだ。\n友人や恋人と出かけることも好きで、ご飯を食べに行くことが多い。\n優柔不断だ。\n作業環境を工夫するのが好きだ。\nネガティブだとよく言われる。\n最近友達に教えてもらい、麻雀をよくしている。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 3.6666666666666665,
+            "Conscientiousness": 2.8333333333333335,
+            "Extraversion": 4.666666666666667,
+            "Agreeableness": 4.416666666666667,
+            "Neuroticism": 4.75
+          },
+          "kiss18": {
+            "BasicSkill": 3.0,
+            "AdvancedSkill": 3.0,
+            "EmotionalManagementSkill": 3.0,
+            "OffenceManagementSkill": 2.6666666666666665,
+            "StressManagementSkill": 3.0,
+            "PlanningSkill": 3.0
+          },
+          "atq": {
+            "Fear": 4.428571428571429,
+            "Frustration": 3.5,
+            "Sadness": 5.142857142857143,
+            "Discomfort": 5.333333333333333,
+            "ActivationControl": 3.0,
+            "AttentionalControl": 3.0,
+            "InhibitoryControl": 4.0,
+            "Sociability": 4.8,
+            "HighIntensityPleasure": 4.0,
+            "PositiveAffect": 3.8,
+            "NeutralPerceptualSensitivity": 4.6,
+            "AffectivePerceptualSensitivity": 3.0,
+            "AssociativeSensitivity": 4.4
+          },
+          "sms": {
+            "Extraversion": 3.1,
+            "OtherDirectedness": 2.6666666666666665,
+            "Acting": 2.75
+          },
+          "ios": 3
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "7592dfea30f271564f4402a6422daf9b"
+  },
+  {
+    "context": [
+      {
+        "role": "assistant",
+        "content": "おはようございます！"
+      },
+      {
+        "role": "user",
+        "content": "おはようございます。"
+      },
+      {
+        "role": "assistant",
+        "content": "今日は何時に起きましたか？"
+      },
+      {
+        "role": "user",
+        "content": "7時です。洗濯物がたまってしまって。朝苦手なんですががんばりました。"
+      },
+      {
+        "role": "assistant",
+        "content": "7時！お早いですね。夜型なんですね。"
+      },
+      {
+        "role": "user",
+        "content": "夜型ですね。夜になるほど元気です。"
+      },
+      {
+        "role": "assistant",
+        "content": "おわあ。夜は結構遅くまで起きてられますか？"
+      },
+      {
+        "role": "user",
+        "content": "気づいたら2時だったりします。3時過ぎると眠れなくて焦ります。"
+      },
+      {
+        "role": "assistant",
+        "content": "結構夜型ですね！逆に目冴えてきちゃいますよね。"
+      },
+      {
+        "role": "user",
+        "content": "そうなんです。眠気を逃すとギンギンになっちゃうんですよね。"
+      },
+      {
+        "role": "assistant",
+        "content": "お仕事はあまり朝早くないんですか？"
+      },
+      {
+        "role": "user",
+        "content": "専業主婦なのでその辺テキトーです。"
+      },
+      {
+        "role": "assistant",
+        "content": "なるほど！無理やり起きなくて良いならよかったです！"
+      },
+      {
+        "role": "user",
+        "content": "はい、今はそのへん楽です。会社員の時はよく遅刻していました。"
+      },
+      {
+        "role": "assistant",
+        "content": "わわ、夜型だとその辺キツいですよね…"
+      },
+      {
+        "role": "user",
+        "content": "辛かったです。朝は頭まわらないし。デスクワークだったですが朝は身体動かす方が向いてるなと今思います。"
+      },
+      {
+        "role": "assistant",
+        "content": "一回動いてからの方が目も冴えますしね…！"
+      },
+      {
+        "role": "user",
+        "content": "最近ラジオ体操しているので、血が巡るとはこういうことか！と実感してます。"
+      },
+      {
+        "role": "assistant",
+        "content": "ラジオ体操私も一時期してました！あれ、全身に効いて良いみたいですね。"
+      },
+      {
+        "role": "user",
+        "content": "肩こりや腰痛が辛くてやってみたら軽くなりました。"
+      },
+      {
+        "role": "assistant",
+        "content": "確かに効きそうです。体に良いことしてる感ありますよね。"
+      },
+      {
+        "role": "user",
+        "content": "はい。健康に気を付けて運動とかしてますか？"
+      },
+      {
+        "role": "assistant",
+        "content": "大したことしてないのですが、通学で歩くようにしたり、急に思い立って筋トレとかしてます。"
+      },
+      {
+        "role": "user",
+        "content": "筋トレですか！素晴らしいですね。私そういう運動は苦手で。"
+      },
+      {
+        "role": "assistant",
+        "content": "キツいので本当に思い立った時だけなんですけどね…！腹筋だと声大きくなるし一石二鳥です。"
+      },
+      {
+        "role": "user",
+        "content": "声は小さいより大きい方がいいですもんね。"
+      }
+    ],
+    "next_question": "そうですね。響きますしね。ストレッチとかはしますか？",
+    "user_profile": {
+      "name": "HP",
+      "gender": "Female",
+      "age": 20,
+      "profession": "Four-year college",
+      "residence": "Hokkaido",
+      "life_experience": "大学4年生である。\n演劇サークルに入っている。\n最近は通学時に読書をしている。\n休日は出かけることが多いが、用事がないときは家にいる。\n一人カラオケが好きだ。\n友人や恋人と出かけることも好きで、ご飯を食べに行くことが多い。\n優柔不断だ。\n作業環境を工夫するのが好きだ。\nネガティブだとよく言われる。\n最近友達に教えてもらい、麻雀をよくしている。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 3.6666666666666665,
+          "Conscientiousness": 2.8333333333333335,
+          "Extraversion": 4.666666666666667,
+          "Agreeableness": 4.416666666666667,
+          "Neuroticism": 4.75
+        },
+        "kiss18": {
+          "BasicSkill": 3.0,
+          "AdvancedSkill": 3.0,
+          "EmotionalManagementSkill": 3.0,
+          "OffenceManagementSkill": 2.6666666666666665,
+          "StressManagementSkill": 3.0,
+          "PlanningSkill": 3.0
+        },
+        "atq": {
+          "Fear": 4.428571428571429,
+          "Frustration": 3.5,
+          "Sadness": 5.142857142857143,
+          "Discomfort": 5.333333333333333,
+          "ActivationControl": 3.0,
+          "AttentionalControl": 3.0,
+          "InhibitoryControl": 4.0,
+          "Sociability": 4.8,
+          "HighIntensityPleasure": 4.0,
+          "PositiveAffect": 3.8,
+          "NeutralPerceptualSensitivity": 4.6,
+          "AffectivePerceptualSensitivity": 3.0,
+          "AssociativeSensitivity": 4.4
+        },
+        "sms": {
+          "Extraversion": 3.1,
+          "OtherDirectedness": 2.6666666666666665,
+          "Acting": 2.75
+        },
+        "ios": 3
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "HP",
+        "gender": "Female",
+        "age": 20,
+        "profession": "Four-year college",
+        "residence": "Hokkaido",
+        "life_experience": "大学4年生である。\n演劇サークルに入っている。\n最近は通学時に読書をしている。\n休日は出かけることが多いが、用事がないときは家にいる。\n一人カラオケが好きだ。\n友人や恋人と出かけることも好きで、ご飯を食べに行くことが多い。\n優柔不断だ。\n作業環境を工夫するのが好きだ。\nネガティブだとよく言われる。\n最近友達に教えてもらい、麻雀をよくしている。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 3.6666666666666665,
+            "Conscientiousness": 2.8333333333333335,
+            "Extraversion": 4.666666666666667,
+            "Agreeableness": 4.416666666666667,
+            "Neuroticism": 4.75
+          },
+          "kiss18": {
+            "BasicSkill": 3.0,
+            "AdvancedSkill": 3.0,
+            "EmotionalManagementSkill": 3.0,
+            "OffenceManagementSkill": 2.6666666666666665,
+            "StressManagementSkill": 3.0,
+            "PlanningSkill": 3.0
+          },
+          "atq": {
+            "Fear": 4.428571428571429,
+            "Frustration": 3.5,
+            "Sadness": 5.142857142857143,
+            "Discomfort": 5.333333333333333,
+            "ActivationControl": 3.0,
+            "AttentionalControl": 3.0,
+            "InhibitoryControl": 4.0,
+            "Sociability": 4.8,
+            "HighIntensityPleasure": 4.0,
+            "PositiveAffect": 3.8,
+            "NeutralPerceptualSensitivity": 4.6,
+            "AffectivePerceptualSensitivity": 3.0,
+            "AssociativeSensitivity": 4.4
+          },
+          "sms": {
+            "Extraversion": 3.1,
+            "OtherDirectedness": 2.6666666666666665,
+            "Acting": 2.75
+          },
+          "ios": 3
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "7592dfea30f271564f4402a6422daf9b"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "おはようございます。"
+      },
+      {
+        "role": "assistant",
+        "content": "おはようございます。"
+      },
+      {
+        "role": "user",
+        "content": "昨日からすごく涼しくなりましたね。今朝は寒いくらいです。そちらはどうですか？"
+      }
+    ],
+    "next_question": "すごく寒いです！そろそろニット着たいですね。",
+    "user_profile": {
+      "name": "HP",
+      "gender": "Female",
+      "age": 20,
+      "profession": "Four-year college",
+      "residence": "Hokkaido",
+      "life_experience": "大学4年生である。\n演劇サークルに入っている。\n最近は通学時に読書をしている。\n休日は出かけることが多いが、用事がないときは家にいる。\n一人カラオケが好きだ。\n友人や恋人と出かけることも好きで、ご飯を食べに行くことが多い。\n優柔不断だ。\n作業環境を工夫するのが好きだ。\nネガティブだとよく言われる。\n最近友達に教えてもらい、麻雀をよくしている。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 3.6666666666666665,
+          "Conscientiousness": 2.8333333333333335,
+          "Extraversion": 4.666666666666667,
+          "Agreeableness": 4.416666666666667,
+          "Neuroticism": 4.75
+        },
+        "kiss18": {
+          "BasicSkill": 3.0,
+          "AdvancedSkill": 3.0,
+          "EmotionalManagementSkill": 3.0,
+          "OffenceManagementSkill": 2.6666666666666665,
+          "StressManagementSkill": 3.0,
+          "PlanningSkill": 3.0
+        },
+        "atq": {
+          "Fear": 4.428571428571429,
+          "Frustration": 3.5,
+          "Sadness": 5.142857142857143,
+          "Discomfort": 5.333333333333333,
+          "ActivationControl": 3.0,
+          "AttentionalControl": 3.0,
+          "InhibitoryControl": 4.0,
+          "Sociability": 4.8,
+          "HighIntensityPleasure": 4.0,
+          "PositiveAffect": 3.8,
+          "NeutralPerceptualSensitivity": 4.6,
+          "AffectivePerceptualSensitivity": 3.0,
+          "AssociativeSensitivity": 4.4
+        },
+        "sms": {
+          "Extraversion": 3.1,
+          "OtherDirectedness": 2.6666666666666665,
+          "Acting": 2.75
+        },
+        "ios": 3
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "HP",
+        "gender": "Female",
+        "age": 20,
+        "profession": "Four-year college",
+        "residence": "Hokkaido",
+        "life_experience": "大学4年生である。\n演劇サークルに入っている。\n最近は通学時に読書をしている。\n休日は出かけることが多いが、用事がないときは家にいる。\n一人カラオケが好きだ。\n友人や恋人と出かけることも好きで、ご飯を食べに行くことが多い。\n優柔不断だ。\n作業環境を工夫するのが好きだ。\nネガティブだとよく言われる。\n最近友達に教えてもらい、麻雀をよくしている。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 3.6666666666666665,
+            "Conscientiousness": 2.8333333333333335,
+            "Extraversion": 4.666666666666667,
+            "Agreeableness": 4.416666666666667,
+            "Neuroticism": 4.75
+          },
+          "kiss18": {
+            "BasicSkill": 3.0,
+            "AdvancedSkill": 3.0,
+            "EmotionalManagementSkill": 3.0,
+            "OffenceManagementSkill": 2.6666666666666665,
+            "StressManagementSkill": 3.0,
+            "PlanningSkill": 3.0
+          },
+          "atq": {
+            "Fear": 4.428571428571429,
+            "Frustration": 3.5,
+            "Sadness": 5.142857142857143,
+            "Discomfort": 5.333333333333333,
+            "ActivationControl": 3.0,
+            "AttentionalControl": 3.0,
+            "InhibitoryControl": 4.0,
+            "Sociability": 4.8,
+            "HighIntensityPleasure": 4.0,
+            "PositiveAffect": 3.8,
+            "NeutralPerceptualSensitivity": 4.6,
+            "AffectivePerceptualSensitivity": 3.0,
+            "AssociativeSensitivity": 4.4
+          },
+          "sms": {
+            "Extraversion": 3.1,
+            "OtherDirectedness": 2.6666666666666665,
+            "Acting": 2.75
+          },
+          "ios": 3
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "7592dfea30f271564f4402a6422daf9b"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "おはようございます。"
+      },
+      {
+        "role": "assistant",
+        "content": "おはようございます。"
+      },
+      {
+        "role": "user",
+        "content": "昨日からすごく涼しくなりましたね。今朝は寒いくらいです。そちらはどうですか？"
+      },
+      {
+        "role": "assistant",
+        "content": "すごく寒いです！そろそろニット着たいですね。"
+      },
+      {
+        "role": "user",
+        "content": "ですねー。長袖とかもう出しました？"
+      },
+      {
+        "role": "assistant",
+        "content": "出してます出してます。北海道なので寒くて！"
+      },
+      {
+        "role": "user",
+        "content": "北海道ですか！私は千葉です。北海道の網走は先日30度だったとニュースでみました。"
+      },
+      {
+        "role": "assistant",
+        "content": "千葉！都会ですね…！30度はまるで真夏です。"
+      },
+      {
+        "role": "user",
+        "content": "こちらは一昨日まで日中が30度で10月とは思えませんでした。"
+      },
+      {
+        "role": "assistant",
+        "content": "本当ですか！まだ半袖着ますか？"
+      },
+      {
+        "role": "user",
+        "content": "昨日まで着てました。今日はさすがに無理ですね。今15度なんです。"
+      },
+      {
+        "role": "assistant",
+        "content": "急にガクッと落ちましたよね！千葉では15度はもう冬って感じですか？"
+      },
+      {
+        "role": "user",
+        "content": "秋って感じですね。冬は0度近くまでは行きますよ。北海道から見たらぬるいかもしれませんが。"
+      },
+      {
+        "role": "assistant",
+        "content": "意外と低くなるんですね。十分寒いと思います。"
+      },
+      {
+        "role": "user",
+        "content": "雪も何度か積もりますよ。私、地元が九州で北海道までは行ったことがないんです。"
+      },
+      {
+        "role": "assistant",
+        "content": "九州なんですか！真逆ですね…！九州の冬はあったかいですか？"
+      },
+      {
+        "role": "user",
+        "content": "そうでもなかったです。盆地だったのもありますが、積雪してましたし、0度近くまでは冷えてましたね。"
+      },
+      {
+        "role": "assistant",
+        "content": "九州でも積雪するんですね！冬寒く夏暑いの大変ですよね"
+      },
+      {
+        "role": "user",
+        "content": "積雪しますよーでも一日で溶けます。私が居た頃は夏は最高30度くらいでした。"
+      }
+    ],
+    "next_question": "最高30度！熱中症とか大変そうですね",
+    "user_profile": {
+      "name": "HP",
+      "gender": "Female",
+      "age": 20,
+      "profession": "Four-year college",
+      "residence": "Hokkaido",
+      "life_experience": "大学4年生である。\n演劇サークルに入っている。\n最近は通学時に読書をしている。\n休日は出かけることが多いが、用事がないときは家にいる。\n一人カラオケが好きだ。\n友人や恋人と出かけることも好きで、ご飯を食べに行くことが多い。\n優柔不断だ。\n作業環境を工夫するのが好きだ。\nネガティブだとよく言われる。\n最近友達に教えてもらい、麻雀をよくしている。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 3.6666666666666665,
+          "Conscientiousness": 2.8333333333333335,
+          "Extraversion": 4.666666666666667,
+          "Agreeableness": 4.416666666666667,
+          "Neuroticism": 4.75
+        },
+        "kiss18": {
+          "BasicSkill": 3.0,
+          "AdvancedSkill": 3.0,
+          "EmotionalManagementSkill": 3.0,
+          "OffenceManagementSkill": 2.6666666666666665,
+          "StressManagementSkill": 3.0,
+          "PlanningSkill": 3.0
+        },
+        "atq": {
+          "Fear": 4.428571428571429,
+          "Frustration": 3.5,
+          "Sadness": 5.142857142857143,
+          "Discomfort": 5.333333333333333,
+          "ActivationControl": 3.0,
+          "AttentionalControl": 3.0,
+          "InhibitoryControl": 4.0,
+          "Sociability": 4.8,
+          "HighIntensityPleasure": 4.0,
+          "PositiveAffect": 3.8,
+          "NeutralPerceptualSensitivity": 4.6,
+          "AffectivePerceptualSensitivity": 3.0,
+          "AssociativeSensitivity": 4.4
+        },
+        "sms": {
+          "Extraversion": 3.1,
+          "OtherDirectedness": 2.6666666666666665,
+          "Acting": 2.75
+        },
+        "ios": 3
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "HP",
+        "gender": "Female",
+        "age": 20,
+        "profession": "Four-year college",
+        "residence": "Hokkaido",
+        "life_experience": "大学4年生である。\n演劇サークルに入っている。\n最近は通学時に読書をしている。\n休日は出かけることが多いが、用事がないときは家にいる。\n一人カラオケが好きだ。\n友人や恋人と出かけることも好きで、ご飯を食べに行くことが多い。\n優柔不断だ。\n作業環境を工夫するのが好きだ。\nネガティブだとよく言われる。\n最近友達に教えてもらい、麻雀をよくしている。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 3.6666666666666665,
+            "Conscientiousness": 2.8333333333333335,
+            "Extraversion": 4.666666666666667,
+            "Agreeableness": 4.416666666666667,
+            "Neuroticism": 4.75
+          },
+          "kiss18": {
+            "BasicSkill": 3.0,
+            "AdvancedSkill": 3.0,
+            "EmotionalManagementSkill": 3.0,
+            "OffenceManagementSkill": 2.6666666666666665,
+            "StressManagementSkill": 3.0,
+            "PlanningSkill": 3.0
+          },
+          "atq": {
+            "Fear": 4.428571428571429,
+            "Frustration": 3.5,
+            "Sadness": 5.142857142857143,
+            "Discomfort": 5.333333333333333,
+            "ActivationControl": 3.0,
+            "AttentionalControl": 3.0,
+            "InhibitoryControl": 4.0,
+            "Sociability": 4.8,
+            "HighIntensityPleasure": 4.0,
+            "PositiveAffect": 3.8,
+            "NeutralPerceptualSensitivity": 4.6,
+            "AffectivePerceptualSensitivity": 3.0,
+            "AssociativeSensitivity": 4.4
+          },
+          "sms": {
+            "Extraversion": 3.1,
+            "OtherDirectedness": 2.6666666666666665,
+            "Acting": 2.75
+          },
+          "ios": 3
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "7592dfea30f271564f4402a6422daf9b"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "こんにちは、はじめまして。"
+      },
+      {
+        "role": "assistant",
+        "content": "こんにちは、よろしくお願いします。"
+      },
+      {
+        "role": "user",
+        "content": "台風後ずいぶん涼しくなりましたね。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうですね、このまま涼しかったらいいんですよね。"
+      },
+      {
+        "role": "user",
+        "content": "また、突然夏日になったりしますからねぇ。"
+      },
+      {
+        "role": "assistant",
+        "content": "夏と冬どちらが好きですか。"
+      },
+      {
+        "role": "user",
+        "content": "冬ですね。今雪国在住なので冬も厳しいですが、それでも冬の方が得意です。"
+      },
+      {
+        "role": "assistant",
+        "content": "私は比較的暖かい地域に住んでるんですが、冬でもとても寒くて苦労してます。"
+      },
+      {
+        "role": "user",
+        "content": "基本的に夏冬はどちらも苦手で当然ですからね。"
+      },
+      {
+        "role": "assistant",
+        "content": "やはり秋が一番いいですよね、紅葉も綺麗ですからね。"
+      },
+      {
+        "role": "user",
+        "content": "そうですね。わたしも春より秋の方が好みですよ。"
+      }
+    ],
+    "next_question": "春は年度初めだから色々ストレスも溜まりますよね。",
+    "user_profile": {
+      "name": "GS",
+      "gender": "Male",
+      "profession": "Four-year college",
+      "residence": "Hiroshima",
+      "life_experience": "中国地方の国立大学に通う大学生です。\n出身は福岡県です。\n趣味は旅行です。\nいつか日本全国すべての都道府県を制覇してみたいという夢があります。\n特技は計算やカラオケです。\n好きな食べ物はから揚げやハンバーグです。\nよく周りの人からは、責任感があるという声をかけていただいています。\n中学高校時代は陸上競技をやっていました。\n休日はカラオケに行き歌の練習をしたり、音楽を聴いてまったり過ごしたりしています。\nスピーカーやイヤホンはBOSE派です。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 4.833333333333333,
+          "Conscientiousness": 5.083333333333333,
+          "Extraversion": 4.416666666666667,
+          "Agreeableness": 4.583333333333333,
+          "Neuroticism": 5.583333333333333
+        },
+        "kiss18": {
+          "BasicSkill": 4.666666666666667,
+          "AdvancedSkill": 3.0,
+          "EmotionalManagementSkill": 2.3333333333333335,
+          "OffenceManagementSkill": 2.3333333333333335,
+          "StressManagementSkill": 2.6666666666666665,
+          "PlanningSkill": 4.0
+        },
+        "atq": {
+          "Fear": 4.0,
+          "Frustration": 4.333333333333333,
+          "Sadness": 5.714285714285714,
+          "Discomfort": 5.0,
+          "ActivationControl": 5.142857142857143,
+          "AttentionalControl": 4.4,
+          "InhibitoryControl": 4.714285714285714,
+          "Sociability": 4.4,
+          "HighIntensityPleasure": 3.7142857142857144,
+          "PositiveAffect": 5.2,
+          "NeutralPerceptualSensitivity": 5.2,
+          "AffectivePerceptualSensitivity": 4.2,
+          "AssociativeSensitivity": 4.2
+        },
+        "sms": {
+          "Extraversion": 3.8,
+          "OtherDirectedness": 2.8333333333333335,
+          "Acting": 4.25
+        },
+        "ios": 4
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "GS",
+        "gender": "Male",
+        "profession": "Four-year college",
+        "residence": "Hiroshima",
+        "life_experience": "中国地方の国立大学に通う大学生です。\n出身は福岡県です。\n趣味は旅行です。\nいつか日本全国すべての都道府県を制覇してみたいという夢があります。\n特技は計算やカラオケです。\n好きな食べ物はから揚げやハンバーグです。\nよく周りの人からは、責任感があるという声をかけていただいています。\n中学高校時代は陸上競技をやっていました。\n休日はカラオケに行き歌の練習をしたり、音楽を聴いてまったり過ごしたりしています。\nスピーカーやイヤホンはBOSE派です。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 4.833333333333333,
+            "Conscientiousness": 5.083333333333333,
+            "Extraversion": 4.416666666666667,
+            "Agreeableness": 4.583333333333333,
+            "Neuroticism": 5.583333333333333
+          },
+          "kiss18": {
+            "BasicSkill": 4.666666666666667,
+            "AdvancedSkill": 3.0,
+            "EmotionalManagementSkill": 2.3333333333333335,
+            "OffenceManagementSkill": 2.3333333333333335,
+            "StressManagementSkill": 2.6666666666666665,
+            "PlanningSkill": 4.0
+          },
+          "atq": {
+            "Fear": 4.0,
+            "Frustration": 4.333333333333333,
+            "Sadness": 5.714285714285714,
+            "Discomfort": 5.0,
+            "ActivationControl": 5.142857142857143,
+            "AttentionalControl": 4.4,
+            "InhibitoryControl": 4.714285714285714,
+            "Sociability": 4.4,
+            "HighIntensityPleasure": 3.7142857142857144,
+            "PositiveAffect": 5.2,
+            "NeutralPerceptualSensitivity": 5.2,
+            "AffectivePerceptualSensitivity": 4.2,
+            "AssociativeSensitivity": 4.2
+          },
+          "sms": {
+            "Extraversion": 3.8,
+            "OtherDirectedness": 2.8333333333333335,
+            "Acting": 4.25
+          },
+          "ios": 4
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "c116f135f6faa80cd6c311c8587dc2f5"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "こんにちは、はじめまして。"
+      },
+      {
+        "role": "assistant",
+        "content": "こんにちは、よろしくお願いします。"
+      },
+      {
+        "role": "user",
+        "content": "台風後ずいぶん涼しくなりましたね。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうですね、このまま涼しかったらいいんですよね。"
+      },
+      {
+        "role": "user",
+        "content": "また、突然夏日になったりしますからねぇ。"
+      },
+      {
+        "role": "assistant",
+        "content": "夏と冬どちらが好きですか。"
+      },
+      {
+        "role": "user",
+        "content": "冬ですね。今雪国在住なので冬も厳しいですが、それでも冬の方が得意です。"
+      },
+      {
+        "role": "assistant",
+        "content": "私は比較的暖かい地域に住んでるんですが、冬でもとても寒くて苦労してます。"
+      },
+      {
+        "role": "user",
+        "content": "基本的に夏冬はどちらも苦手で当然ですからね。"
+      },
+      {
+        "role": "assistant",
+        "content": "やはり秋が一番いいですよね、紅葉も綺麗ですからね。"
+      },
+      {
+        "role": "user",
+        "content": "そうですね。わたしも春より秋の方が好みですよ。"
+      },
+      {
+        "role": "assistant",
+        "content": "春は年度初めだから色々ストレスも溜まりますよね。"
+      },
+      {
+        "role": "user",
+        "content": "確かにそれもありますね。5月病なんていうのもありますし。"
+      },
+      {
+        "role": "assistant",
+        "content": "毎年思いますけど５月のゴールデンウィーク開けてから６月って本当に時が流れるのが遅いですよね。"
+      },
+      {
+        "role": "user",
+        "content": "そうですね、なぜか長く感じるのはあの時期ですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "６月も３連休あればかなり負担も軽くなるなと毎年思ってます。"
+      },
+      {
+        "role": "user",
+        "content": "何といっても連休というのは色々違いますからね。"
+      },
+      {
+        "role": "assistant",
+        "content": "連休のときとか何して過ごされてますか。"
+      },
+      {
+        "role": "user",
+        "content": "以前はバイクに乗ったり、運動をしたりが多かったですが、今は自宅で映画を観るなどしてます。"
+      }
+    ],
+    "next_question": "運動してたんですね、私もかつては陸上競技やってましたよ。",
+    "user_profile": {
+      "name": "GS",
+      "gender": "Male",
+      "profession": "Four-year college",
+      "residence": "Hiroshima",
+      "life_experience": "中国地方の国立大学に通う大学生です。\n出身は福岡県です。\n趣味は旅行です。\nいつか日本全国すべての都道府県を制覇してみたいという夢があります。\n特技は計算やカラオケです。\n好きな食べ物はから揚げやハンバーグです。\nよく周りの人からは、責任感があるという声をかけていただいています。\n中学高校時代は陸上競技をやっていました。\n休日はカラオケに行き歌の練習をしたり、音楽を聴いてまったり過ごしたりしています。\nスピーカーやイヤホンはBOSE派です。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 4.833333333333333,
+          "Conscientiousness": 5.083333333333333,
+          "Extraversion": 4.416666666666667,
+          "Agreeableness": 4.583333333333333,
+          "Neuroticism": 5.583333333333333
+        },
+        "kiss18": {
+          "BasicSkill": 4.666666666666667,
+          "AdvancedSkill": 3.0,
+          "EmotionalManagementSkill": 2.3333333333333335,
+          "OffenceManagementSkill": 2.3333333333333335,
+          "StressManagementSkill": 2.6666666666666665,
+          "PlanningSkill": 4.0
+        },
+        "atq": {
+          "Fear": 4.0,
+          "Frustration": 4.333333333333333,
+          "Sadness": 5.714285714285714,
+          "Discomfort": 5.0,
+          "ActivationControl": 5.142857142857143,
+          "AttentionalControl": 4.4,
+          "InhibitoryControl": 4.714285714285714,
+          "Sociability": 4.4,
+          "HighIntensityPleasure": 3.7142857142857144,
+          "PositiveAffect": 5.2,
+          "NeutralPerceptualSensitivity": 5.2,
+          "AffectivePerceptualSensitivity": 4.2,
+          "AssociativeSensitivity": 4.2
+        },
+        "sms": {
+          "Extraversion": 3.8,
+          "OtherDirectedness": 2.8333333333333335,
+          "Acting": 4.25
+        },
+        "ios": 4
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "GS",
+        "gender": "Male",
+        "profession": "Four-year college",
+        "residence": "Hiroshima",
+        "life_experience": "中国地方の国立大学に通う大学生です。\n出身は福岡県です。\n趣味は旅行です。\nいつか日本全国すべての都道府県を制覇してみたいという夢があります。\n特技は計算やカラオケです。\n好きな食べ物はから揚げやハンバーグです。\nよく周りの人からは、責任感があるという声をかけていただいています。\n中学高校時代は陸上競技をやっていました。\n休日はカラオケに行き歌の練習をしたり、音楽を聴いてまったり過ごしたりしています。\nスピーカーやイヤホンはBOSE派です。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 4.833333333333333,
+            "Conscientiousness": 5.083333333333333,
+            "Extraversion": 4.416666666666667,
+            "Agreeableness": 4.583333333333333,
+            "Neuroticism": 5.583333333333333
+          },
+          "kiss18": {
+            "BasicSkill": 4.666666666666667,
+            "AdvancedSkill": 3.0,
+            "EmotionalManagementSkill": 2.3333333333333335,
+            "OffenceManagementSkill": 2.3333333333333335,
+            "StressManagementSkill": 2.6666666666666665,
+            "PlanningSkill": 4.0
+          },
+          "atq": {
+            "Fear": 4.0,
+            "Frustration": 4.333333333333333,
+            "Sadness": 5.714285714285714,
+            "Discomfort": 5.0,
+            "ActivationControl": 5.142857142857143,
+            "AttentionalControl": 4.4,
+            "InhibitoryControl": 4.714285714285714,
+            "Sociability": 4.4,
+            "HighIntensityPleasure": 3.7142857142857144,
+            "PositiveAffect": 5.2,
+            "NeutralPerceptualSensitivity": 5.2,
+            "AffectivePerceptualSensitivity": 4.2,
+            "AssociativeSensitivity": 4.2
+          },
+          "sms": {
+            "Extraversion": 3.8,
+            "OtherDirectedness": 2.8333333333333335,
+            "Acting": 4.25
+          },
+          "ios": 4
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "c116f135f6faa80cd6c311c8587dc2f5"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "こんにちは、はじめまして。"
+      },
+      {
+        "role": "assistant",
+        "content": "こんにちは、よろしくお願いします。"
+      },
+      {
+        "role": "user",
+        "content": "台風後ずいぶん涼しくなりましたね。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうですね、このまま涼しかったらいいんですよね。"
+      },
+      {
+        "role": "user",
+        "content": "また、突然夏日になったりしますからねぇ。"
+      },
+      {
+        "role": "assistant",
+        "content": "夏と冬どちらが好きですか。"
+      },
+      {
+        "role": "user",
+        "content": "冬ですね。今雪国在住なので冬も厳しいですが、それでも冬の方が得意です。"
+      },
+      {
+        "role": "assistant",
+        "content": "私は比較的暖かい地域に住んでるんですが、冬でもとても寒くて苦労してます。"
+      },
+      {
+        "role": "user",
+        "content": "基本的に夏冬はどちらも苦手で当然ですからね。"
+      },
+      {
+        "role": "assistant",
+        "content": "やはり秋が一番いいですよね、紅葉も綺麗ですからね。"
+      },
+      {
+        "role": "user",
+        "content": "そうですね。わたしも春より秋の方が好みですよ。"
+      },
+      {
+        "role": "assistant",
+        "content": "春は年度初めだから色々ストレスも溜まりますよね。"
+      },
+      {
+        "role": "user",
+        "content": "確かにそれもありますね。5月病なんていうのもありますし。"
+      },
+      {
+        "role": "assistant",
+        "content": "毎年思いますけど５月のゴールデンウィーク開けてから６月って本当に時が流れるのが遅いですよね。"
+      },
+      {
+        "role": "user",
+        "content": "そうですね、なぜか長く感じるのはあの時期ですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "６月も３連休あればかなり負担も軽くなるなと毎年思ってます。"
+      },
+      {
+        "role": "user",
+        "content": "何といっても連休というのは色々違いますからね。"
+      },
+      {
+        "role": "assistant",
+        "content": "連休のときとか何して過ごされてますか。"
+      },
+      {
+        "role": "user",
+        "content": "以前はバイクに乗ったり、運動をしたりが多かったですが、今は自宅で映画を観るなどしてます。"
+      },
+      {
+        "role": "assistant",
+        "content": "運動してたんですね、私もかつては陸上競技やってましたよ。"
+      },
+      {
+        "role": "user",
+        "content": "おお、陸上ですか。わたしは足が遅いので全くの苦手でした。"
+      },
+      {
+        "role": "assistant",
+        "content": "運動で唯一陸上しかできなくてですね、水泳はカナヅチでしたよ。"
+      },
+      {
+        "role": "user",
+        "content": "皆得意・不得意ありますからねぇ。たまに万能な人もいますが。"
+      }
+    ],
+    "next_question": "万能な人がうらやましい限りですよ。クラスに大体１人か２人はいますよね。",
+    "user_profile": {
+      "name": "GS",
+      "gender": "Male",
+      "profession": "Four-year college",
+      "residence": "Hiroshima",
+      "life_experience": "中国地方の国立大学に通う大学生です。\n出身は福岡県です。\n趣味は旅行です。\nいつか日本全国すべての都道府県を制覇してみたいという夢があります。\n特技は計算やカラオケです。\n好きな食べ物はから揚げやハンバーグです。\nよく周りの人からは、責任感があるという声をかけていただいています。\n中学高校時代は陸上競技をやっていました。\n休日はカラオケに行き歌の練習をしたり、音楽を聴いてまったり過ごしたりしています。\nスピーカーやイヤホンはBOSE派です。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 4.833333333333333,
+          "Conscientiousness": 5.083333333333333,
+          "Extraversion": 4.416666666666667,
+          "Agreeableness": 4.583333333333333,
+          "Neuroticism": 5.583333333333333
+        },
+        "kiss18": {
+          "BasicSkill": 4.666666666666667,
+          "AdvancedSkill": 3.0,
+          "EmotionalManagementSkill": 2.3333333333333335,
+          "OffenceManagementSkill": 2.3333333333333335,
+          "StressManagementSkill": 2.6666666666666665,
+          "PlanningSkill": 4.0
+        },
+        "atq": {
+          "Fear": 4.0,
+          "Frustration": 4.333333333333333,
+          "Sadness": 5.714285714285714,
+          "Discomfort": 5.0,
+          "ActivationControl": 5.142857142857143,
+          "AttentionalControl": 4.4,
+          "InhibitoryControl": 4.714285714285714,
+          "Sociability": 4.4,
+          "HighIntensityPleasure": 3.7142857142857144,
+          "PositiveAffect": 5.2,
+          "NeutralPerceptualSensitivity": 5.2,
+          "AffectivePerceptualSensitivity": 4.2,
+          "AssociativeSensitivity": 4.2
+        },
+        "sms": {
+          "Extraversion": 3.8,
+          "OtherDirectedness": 2.8333333333333335,
+          "Acting": 4.25
+        },
+        "ios": 4
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "GS",
+        "gender": "Male",
+        "profession": "Four-year college",
+        "residence": "Hiroshima",
+        "life_experience": "中国地方の国立大学に通う大学生です。\n出身は福岡県です。\n趣味は旅行です。\nいつか日本全国すべての都道府県を制覇してみたいという夢があります。\n特技は計算やカラオケです。\n好きな食べ物はから揚げやハンバーグです。\nよく周りの人からは、責任感があるという声をかけていただいています。\n中学高校時代は陸上競技をやっていました。\n休日はカラオケに行き歌の練習をしたり、音楽を聴いてまったり過ごしたりしています。\nスピーカーやイヤホンはBOSE派です。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 4.833333333333333,
+            "Conscientiousness": 5.083333333333333,
+            "Extraversion": 4.416666666666667,
+            "Agreeableness": 4.583333333333333,
+            "Neuroticism": 5.583333333333333
+          },
+          "kiss18": {
+            "BasicSkill": 4.666666666666667,
+            "AdvancedSkill": 3.0,
+            "EmotionalManagementSkill": 2.3333333333333335,
+            "OffenceManagementSkill": 2.3333333333333335,
+            "StressManagementSkill": 2.6666666666666665,
+            "PlanningSkill": 4.0
+          },
+          "atq": {
+            "Fear": 4.0,
+            "Frustration": 4.333333333333333,
+            "Sadness": 5.714285714285714,
+            "Discomfort": 5.0,
+            "ActivationControl": 5.142857142857143,
+            "AttentionalControl": 4.4,
+            "InhibitoryControl": 4.714285714285714,
+            "Sociability": 4.4,
+            "HighIntensityPleasure": 3.7142857142857144,
+            "PositiveAffect": 5.2,
+            "NeutralPerceptualSensitivity": 5.2,
+            "AffectivePerceptualSensitivity": 4.2,
+            "AssociativeSensitivity": 4.2
+          },
+          "sms": {
+            "Extraversion": 3.8,
+            "OtherDirectedness": 2.8333333333333335,
+            "Acting": 4.25
+          },
+          "ios": 4
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "c116f135f6faa80cd6c311c8587dc2f5"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "こんにちは、よろしくお願いします。"
+      },
+      {
+        "role": "assistant",
+        "content": "こちらこそよろしくお願いします。"
+      },
+      {
+        "role": "user",
+        "content": "もう秋になりますが、この時季になるとバイクを手放したのが惜しく感じるのですよ。"
+      }
+    ],
+    "next_question": "この時期はいい気候ですからねぇ。バイクで旅とかしてる感じですか。",
+    "user_profile": {
+      "name": "GS",
+      "gender": "Male",
+      "profession": "Four-year college",
+      "residence": "Hiroshima",
+      "life_experience": "中国地方の国立大学に通う大学生です。\n出身は福岡県です。\n趣味は旅行です。\nいつか日本全国すべての都道府県を制覇してみたいという夢があります。\n特技は計算やカラオケです。\n好きな食べ物はから揚げやハンバーグです。\nよく周りの人からは、責任感があるという声をかけていただいています。\n中学高校時代は陸上競技をやっていました。\n休日はカラオケに行き歌の練習をしたり、音楽を聴いてまったり過ごしたりしています。\nスピーカーやイヤホンはBOSE派です。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 4.833333333333333,
+          "Conscientiousness": 5.083333333333333,
+          "Extraversion": 4.416666666666667,
+          "Agreeableness": 4.583333333333333,
+          "Neuroticism": 5.583333333333333
+        },
+        "kiss18": {
+          "BasicSkill": 4.666666666666667,
+          "AdvancedSkill": 3.0,
+          "EmotionalManagementSkill": 2.3333333333333335,
+          "OffenceManagementSkill": 2.3333333333333335,
+          "StressManagementSkill": 2.6666666666666665,
+          "PlanningSkill": 4.0
+        },
+        "atq": {
+          "Fear": 4.0,
+          "Frustration": 4.333333333333333,
+          "Sadness": 5.714285714285714,
+          "Discomfort": 5.0,
+          "ActivationControl": 5.142857142857143,
+          "AttentionalControl": 4.4,
+          "InhibitoryControl": 4.714285714285714,
+          "Sociability": 4.4,
+          "HighIntensityPleasure": 3.7142857142857144,
+          "PositiveAffect": 5.2,
+          "NeutralPerceptualSensitivity": 5.2,
+          "AffectivePerceptualSensitivity": 4.2,
+          "AssociativeSensitivity": 4.2
+        },
+        "sms": {
+          "Extraversion": 3.8,
+          "OtherDirectedness": 2.8333333333333335,
+          "Acting": 4.25
+        },
+        "ios": 4
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "GS",
+        "gender": "Male",
+        "profession": "Four-year college",
+        "residence": "Hiroshima",
+        "life_experience": "中国地方の国立大学に通う大学生です。\n出身は福岡県です。\n趣味は旅行です。\nいつか日本全国すべての都道府県を制覇してみたいという夢があります。\n特技は計算やカラオケです。\n好きな食べ物はから揚げやハンバーグです。\nよく周りの人からは、責任感があるという声をかけていただいています。\n中学高校時代は陸上競技をやっていました。\n休日はカラオケに行き歌の練習をしたり、音楽を聴いてまったり過ごしたりしています。\nスピーカーやイヤホンはBOSE派です。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 4.833333333333333,
+            "Conscientiousness": 5.083333333333333,
+            "Extraversion": 4.416666666666667,
+            "Agreeableness": 4.583333333333333,
+            "Neuroticism": 5.583333333333333
+          },
+          "kiss18": {
+            "BasicSkill": 4.666666666666667,
+            "AdvancedSkill": 3.0,
+            "EmotionalManagementSkill": 2.3333333333333335,
+            "OffenceManagementSkill": 2.3333333333333335,
+            "StressManagementSkill": 2.6666666666666665,
+            "PlanningSkill": 4.0
+          },
+          "atq": {
+            "Fear": 4.0,
+            "Frustration": 4.333333333333333,
+            "Sadness": 5.714285714285714,
+            "Discomfort": 5.0,
+            "ActivationControl": 5.142857142857143,
+            "AttentionalControl": 4.4,
+            "InhibitoryControl": 4.714285714285714,
+            "Sociability": 4.4,
+            "HighIntensityPleasure": 3.7142857142857144,
+            "PositiveAffect": 5.2,
+            "NeutralPerceptualSensitivity": 5.2,
+            "AffectivePerceptualSensitivity": 4.2,
+            "AssociativeSensitivity": 4.2
+          },
+          "sms": {
+            "Extraversion": 3.8,
+            "OtherDirectedness": 2.8333333333333335,
+            "Acting": 4.25
+          },
+          "ios": 4
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "c116f135f6faa80cd6c311c8587dc2f5"
+  },
+  {
+    "context": [
+      {
+        "role": "assistant",
+        "content": "こんばんは。雨すごいですね。そちらはどうですか？"
+      },
+      {
+        "role": "user",
+        "content": "こんばんは！いまはまだ降っていないようです。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうなのですね！こちらは今すごい降ってます。"
+      },
+      {
+        "role": "user",
+        "content": "そうですか、やはり場所によって違うのですね。台風が来てるのですよね。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうです。コンビニ行こうと思ったんですが諦めました。"
+      },
+      {
+        "role": "user",
+        "content": "そうなんですね、夕立みたくすぐ止みそうにないですものね。"
+      },
+      {
+        "role": "assistant",
+        "content": "夕立よりかはかかりそうですが明日は晴れるそうです。"
+      },
+      {
+        "role": "user",
+        "content": "もう止むのですね、東北、北海道が大変になりそうだと聞きました。"
+      },
+      {
+        "role": "assistant",
+        "content": "こちらは東京ですが深夜には止みそうです。コンビニは朝かな。"
+      },
+      {
+        "role": "user",
+        "content": "そうですか、はやく通り過ぎてほしいですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "ですね。明日は出かけようと思っているので。"
+      },
+      {
+        "role": "user",
+        "content": "ならなおさらですね、最近夏でもよく突然雨降るので、びっくりしますね。"
+      },
+      {
+        "role": "assistant",
+        "content": "雷も結構鳴っては落ちますよね。雷鳴ると電化製品が心配です。"
+      },
+      {
+        "role": "user",
+        "content": "落ちてますか？そうですね、電化製品が調子悪くなりそうです。"
+      },
+      {
+        "role": "assistant",
+        "content": "以前落雷があった次の日に職場のパソコンがだめになったことがあったので心配なのです。"
+      },
+      {
+        "role": "user",
+        "content": "そんなことあったんですか！仕事ができなくなってしまいますね。気を付けようもないですし。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうなんですよ。その日の仕事は絶望的でしたね。"
+      },
+      {
+        "role": "user",
+        "content": "それは大変でしたね、帰らせてもらえればいいですが。"
+      },
+      {
+        "role": "assistant",
+        "content": "その日は帰れなかったですが別の日に台風が来た日は帰れと言われてその足で映画を観に行ったことがあります"
+      },
+      {
+        "role": "user",
+        "content": "確かに台風とか来ると、早く返してもらえますね。映画に行ったんですか、いいですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "だいぶ前の話ですけどね。３人くらいしかいなくて快適でした！"
+      },
+      {
+        "role": "user",
+        "content": "平日の映画館は快適そうですね！映画はそんな時に行きたいものです。"
+      },
+      {
+        "role": "assistant",
+        "content": "静かに観たいですものね。あなたは映画館にはよく行きますか？"
+      },
+      {
+        "role": "user",
+        "content": "最近は全然行けてませんが、映画館で見るのが大好きです。あなたは？"
+      },
+      {
+        "role": "assistant",
+        "content": "私も映画館で観る映画が好きなんです。朝イチかレイトショーが特に好きです。"
+      },
+      {
+        "role": "user",
+        "content": "ああ、いいですね、あまり混んでなくて快適に見れそうです。"
+      }
+    ],
+    "next_question": "そうなんですよ。再来週あたりには久しぶりに映画館でポケモン観てきます。",
+    "user_profile": {
+      "name": "CF",
+      "gender": "Female",
+      "age": 40,
+      "profession": "Four-year college",
+      "residence": "Tokyo",
+      "life_experience": "私はイラストを描くのが好きでたまに仕事として依頼されます。\n神奈川県で生まれ育ちました。\n毎朝５時に起きて家族の世話をしています。\n毎朝のお弁当作りを10年以上しています。\n寝ることが好きで、休日はできるだけ寝ていたいです。\n駅前のスーパーによく買い物に行きます。\n私の長所は相手の良いところを探して誰とでも楽しく会話ができることです。\n私の短所は人に合わせて動くので常にストレスがたまるところです。\n趣味は自転車を使った散歩のポタリングです。\n得意な料理はハンバーグで家族からは好評です。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 4.333333333333333,
+          "Conscientiousness": 3.3333333333333335,
+          "Extraversion": 3.4166666666666665,
+          "Agreeableness": 4.083333333333333,
+          "Neuroticism": 5.833333333333333
+        },
+        "kiss18": {
+          "BasicSkill": 3.0,
+          "AdvancedSkill": 2.3333333333333335,
+          "EmotionalManagementSkill": 2.3333333333333335,
+          "OffenceManagementSkill": 3.0,
+          "StressManagementSkill": 3.3333333333333335,
+          "PlanningSkill": 3.3333333333333335
+        },
+        "atq": {
+          "Fear": 5.571428571428571,
+          "Frustration": 3.1666666666666665,
+          "Sadness": 5.571428571428571,
+          "Discomfort": 5.833333333333333,
+          "ActivationControl": 5.0,
+          "AttentionalControl": 3.8,
+          "InhibitoryControl": 4.714285714285714,
+          "Sociability": 2.8,
+          "HighIntensityPleasure": 4.285714285714286,
+          "PositiveAffect": 4.2,
+          "NeutralPerceptualSensitivity": 6.0,
+          "AffectivePerceptualSensitivity": 5.6,
+          "AssociativeSensitivity": 6.2
+        },
+        "sms": {
+          "Extraversion": 2.6,
+          "OtherDirectedness": 1.8333333333333333,
+          "Acting": 1.5
+        },
+        "ios": 2
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "CF",
+        "gender": "Female",
+        "age": 40,
+        "profession": "Four-year college",
+        "residence": "Tokyo",
+        "life_experience": "私はイラストを描くのが好きでたまに仕事として依頼されます。\n神奈川県で生まれ育ちました。\n毎朝５時に起きて家族の世話をしています。\n毎朝のお弁当作りを10年以上しています。\n寝ることが好きで、休日はできるだけ寝ていたいです。\n駅前のスーパーによく買い物に行きます。\n私の長所は相手の良いところを探して誰とでも楽しく会話ができることです。\n私の短所は人に合わせて動くので常にストレスがたまるところです。\n趣味は自転車を使った散歩のポタリングです。\n得意な料理はハンバーグで家族からは好評です。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 4.333333333333333,
+            "Conscientiousness": 3.3333333333333335,
+            "Extraversion": 3.4166666666666665,
+            "Agreeableness": 4.083333333333333,
+            "Neuroticism": 5.833333333333333
+          },
+          "kiss18": {
+            "BasicSkill": 3.0,
+            "AdvancedSkill": 2.3333333333333335,
+            "EmotionalManagementSkill": 2.3333333333333335,
+            "OffenceManagementSkill": 3.0,
+            "StressManagementSkill": 3.3333333333333335,
+            "PlanningSkill": 3.3333333333333335
+          },
+          "atq": {
+            "Fear": 5.571428571428571,
+            "Frustration": 3.1666666666666665,
+            "Sadness": 5.571428571428571,
+            "Discomfort": 5.833333333333333,
+            "ActivationControl": 5.0,
+            "AttentionalControl": 3.8,
+            "InhibitoryControl": 4.714285714285714,
+            "Sociability": 2.8,
+            "HighIntensityPleasure": 4.285714285714286,
+            "PositiveAffect": 4.2,
+            "NeutralPerceptualSensitivity": 6.0,
+            "AffectivePerceptualSensitivity": 5.6,
+            "AssociativeSensitivity": 6.2
+          },
+          "sms": {
+            "Extraversion": 2.6,
+            "OtherDirectedness": 1.8333333333333333,
+            "Acting": 1.5
+          },
+          "ios": 2
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "6f73ae0ad4e6bee13ee98b254aeef849"
+  },
+  {
+    "context": [
+      {
+        "role": "assistant",
+        "content": "こんばんは。雨すごいですね。そちらはどうですか？"
+      },
+      {
+        "role": "user",
+        "content": "こんばんは！いまはまだ降っていないようです。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうなのですね！こちらは今すごい降ってます。"
+      },
+      {
+        "role": "user",
+        "content": "そうですか、やはり場所によって違うのですね。台風が来てるのですよね。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうです。コンビニ行こうと思ったんですが諦めました。"
+      },
+      {
+        "role": "user",
+        "content": "そうなんですね、夕立みたくすぐ止みそうにないですものね。"
+      },
+      {
+        "role": "assistant",
+        "content": "夕立よりかはかかりそうですが明日は晴れるそうです。"
+      },
+      {
+        "role": "user",
+        "content": "もう止むのですね、東北、北海道が大変になりそうだと聞きました。"
+      }
+    ],
+    "next_question": "こちらは東京ですが深夜には止みそうです。コンビニは朝かな。",
+    "user_profile": {
+      "name": "CF",
+      "gender": "Female",
+      "age": 40,
+      "profession": "Four-year college",
+      "residence": "Tokyo",
+      "life_experience": "私はイラストを描くのが好きでたまに仕事として依頼されます。\n神奈川県で生まれ育ちました。\n毎朝５時に起きて家族の世話をしています。\n毎朝のお弁当作りを10年以上しています。\n寝ることが好きで、休日はできるだけ寝ていたいです。\n駅前のスーパーによく買い物に行きます。\n私の長所は相手の良いところを探して誰とでも楽しく会話ができることです。\n私の短所は人に合わせて動くので常にストレスがたまるところです。\n趣味は自転車を使った散歩のポタリングです。\n得意な料理はハンバーグで家族からは好評です。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 4.333333333333333,
+          "Conscientiousness": 3.3333333333333335,
+          "Extraversion": 3.4166666666666665,
+          "Agreeableness": 4.083333333333333,
+          "Neuroticism": 5.833333333333333
+        },
+        "kiss18": {
+          "BasicSkill": 3.0,
+          "AdvancedSkill": 2.3333333333333335,
+          "EmotionalManagementSkill": 2.3333333333333335,
+          "OffenceManagementSkill": 3.0,
+          "StressManagementSkill": 3.3333333333333335,
+          "PlanningSkill": 3.3333333333333335
+        },
+        "atq": {
+          "Fear": 5.571428571428571,
+          "Frustration": 3.1666666666666665,
+          "Sadness": 5.571428571428571,
+          "Discomfort": 5.833333333333333,
+          "ActivationControl": 5.0,
+          "AttentionalControl": 3.8,
+          "InhibitoryControl": 4.714285714285714,
+          "Sociability": 2.8,
+          "HighIntensityPleasure": 4.285714285714286,
+          "PositiveAffect": 4.2,
+          "NeutralPerceptualSensitivity": 6.0,
+          "AffectivePerceptualSensitivity": 5.6,
+          "AssociativeSensitivity": 6.2
+        },
+        "sms": {
+          "Extraversion": 2.6,
+          "OtherDirectedness": 1.8333333333333333,
+          "Acting": 1.5
+        },
+        "ios": 2
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "CF",
+        "gender": "Female",
+        "age": 40,
+        "profession": "Four-year college",
+        "residence": "Tokyo",
+        "life_experience": "私はイラストを描くのが好きでたまに仕事として依頼されます。\n神奈川県で生まれ育ちました。\n毎朝５時に起きて家族の世話をしています。\n毎朝のお弁当作りを10年以上しています。\n寝ることが好きで、休日はできるだけ寝ていたいです。\n駅前のスーパーによく買い物に行きます。\n私の長所は相手の良いところを探して誰とでも楽しく会話ができることです。\n私の短所は人に合わせて動くので常にストレスがたまるところです。\n趣味は自転車を使った散歩のポタリングです。\n得意な料理はハンバーグで家族からは好評です。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 4.333333333333333,
+            "Conscientiousness": 3.3333333333333335,
+            "Extraversion": 3.4166666666666665,
+            "Agreeableness": 4.083333333333333,
+            "Neuroticism": 5.833333333333333
+          },
+          "kiss18": {
+            "BasicSkill": 3.0,
+            "AdvancedSkill": 2.3333333333333335,
+            "EmotionalManagementSkill": 2.3333333333333335,
+            "OffenceManagementSkill": 3.0,
+            "StressManagementSkill": 3.3333333333333335,
+            "PlanningSkill": 3.3333333333333335
+          },
+          "atq": {
+            "Fear": 5.571428571428571,
+            "Frustration": 3.1666666666666665,
+            "Sadness": 5.571428571428571,
+            "Discomfort": 5.833333333333333,
+            "ActivationControl": 5.0,
+            "AttentionalControl": 3.8,
+            "InhibitoryControl": 4.714285714285714,
+            "Sociability": 2.8,
+            "HighIntensityPleasure": 4.285714285714286,
+            "PositiveAffect": 4.2,
+            "NeutralPerceptualSensitivity": 6.0,
+            "AffectivePerceptualSensitivity": 5.6,
+            "AssociativeSensitivity": 6.2
+          },
+          "sms": {
+            "Extraversion": 2.6,
+            "OtherDirectedness": 1.8333333333333333,
+            "Acting": 1.5
+          },
+          "ios": 2
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "6f73ae0ad4e6bee13ee98b254aeef849"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "ごんばんは！"
+      },
+      {
+        "role": "assistant",
+        "content": "こんばんは！夕飯は食べましたか？"
+      },
+      {
+        "role": "user",
+        "content": "はい、19時ごろに食べました、あなたは？"
+      },
+      {
+        "role": "assistant",
+        "content": "奇遇ですね！私も19時くらいにハンバーグ食べました！"
+      },
+      {
+        "role": "user",
+        "content": "そうでしたか、ハンバーグ美味しそうですね！"
+      },
+      {
+        "role": "assistant",
+        "content": "沢山作って冷凍しておきます。今日は冷凍分を使いました。"
+      },
+      {
+        "role": "user",
+        "content": "作っておいて、冷凍しておくと便利ですよね。私もそうしてます。"
+      },
+      {
+        "role": "assistant",
+        "content": "冷凍良いですよね。おかげで冷凍庫がいつもぱんぱんです。"
+      },
+      {
+        "role": "user",
+        "content": "確かに！入れるところがなくて、冷蔵庫もいっぱいになりますね。"
+      },
+      {
+        "role": "assistant",
+        "content": "同じです！そうなんですよ！"
+      },
+      {
+        "role": "user",
+        "content": "たまに入れ方悪くて、ドア開けたら、皿ごと落ちてしまうことあります。"
+      },
+      {
+        "role": "assistant",
+        "content": "すごい親近感を感じます！今日まさに落としたんです！痛かった！"
+      },
+      {
+        "role": "user",
+        "content": "やはり落としてしまいますか！せっかくの料理が台無しになってしまうことあります。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうなんですよね。反省はするんですがまたやってしまうのです。"
+      },
+      {
+        "role": "user",
+        "content": "ですよね、何かいい方法があるといいのですが。"
+      },
+      {
+        "role": "assistant",
+        "content": "できるだけタッパーに入れて重ねると良いんですよね。けど横着なのでやらない。"
+      },
+      {
+        "role": "user",
+        "content": "そうですよね、タッパーに入れるのが一番ですね。わたしも面倒くさくて皿のまま入れてしまいます。"
+      },
+      {
+        "role": "assistant",
+        "content": "お気に入りのお皿とかはそういうときは使わないようにはするようになりました。"
+      },
+      {
+        "role": "user",
+        "content": "私もですね、分かります！落としても平気そうなものに入れますね。"
+      },
+      {
+        "role": "assistant",
+        "content": "昔はまった山崎春のパン祭りのお皿とか使いますね。"
+      },
+      {
+        "role": "user",
+        "content": "ああ、ありましたね、今でも山崎のお皿ってやってるのかな？"
+      },
+      {
+        "role": "assistant",
+        "content": "やってるみたいですね。あのお皿は特殊なガラスなので割ると大変です。"
+      },
+      {
+        "role": "user",
+        "content": "そうなんですか？何か違うんですね、昔持ってましたが、どこにいったやら。"
+      },
+      {
+        "role": "assistant",
+        "content": "強化ガラスらしく割れると破片が細かく薄くて刺さるとものすごい痛いです。"
+      },
+      {
+        "role": "user",
+        "content": "へえ、車のガラスのような素材なんですね、初めて知りました、怖いですね！"
+      },
+      {
+        "role": "assistant",
+        "content": "2回くらい割って痛い思いをしてそれから春のパン祭りは卒業しました。"
+      },
+      {
+        "role": "user",
+        "content": "そんなことがあったんですね、知らなかったですが、今度よく見てみます。"
+      },
+      {
+        "role": "assistant",
+        "content": "ぜひ！お皿は割らないに限ります。反省。"
+      },
+      {
+        "role": "user",
+        "content": "そうですよね、気を付けないとですね。"
+      }
+    ],
+    "next_question": "楽しいお話ありがとうございました！ではまた！",
+    "user_profile": {
+      "name": "CF",
+      "gender": "Female",
+      "age": 40,
+      "profession": "Four-year college",
+      "residence": "Tokyo",
+      "life_experience": "私はイラストを描くのが好きでたまに仕事として依頼されます。\n神奈川県で生まれ育ちました。\n毎朝５時に起きて家族の世話をしています。\n毎朝のお弁当作りを10年以上しています。\n寝ることが好きで、休日はできるだけ寝ていたいです。\n駅前のスーパーによく買い物に行きます。\n私の長所は相手の良いところを探して誰とでも楽しく会話ができることです。\n私の短所は人に合わせて動くので常にストレスがたまるところです。\n趣味は自転車を使った散歩のポタリングです。\n得意な料理はハンバーグで家族からは好評です。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 4.333333333333333,
+          "Conscientiousness": 3.3333333333333335,
+          "Extraversion": 3.4166666666666665,
+          "Agreeableness": 4.083333333333333,
+          "Neuroticism": 5.833333333333333
+        },
+        "kiss18": {
+          "BasicSkill": 3.0,
+          "AdvancedSkill": 2.3333333333333335,
+          "EmotionalManagementSkill": 2.3333333333333335,
+          "OffenceManagementSkill": 3.0,
+          "StressManagementSkill": 3.3333333333333335,
+          "PlanningSkill": 3.3333333333333335
+        },
+        "atq": {
+          "Fear": 5.571428571428571,
+          "Frustration": 3.1666666666666665,
+          "Sadness": 5.571428571428571,
+          "Discomfort": 5.833333333333333,
+          "ActivationControl": 5.0,
+          "AttentionalControl": 3.8,
+          "InhibitoryControl": 4.714285714285714,
+          "Sociability": 2.8,
+          "HighIntensityPleasure": 4.285714285714286,
+          "PositiveAffect": 4.2,
+          "NeutralPerceptualSensitivity": 6.0,
+          "AffectivePerceptualSensitivity": 5.6,
+          "AssociativeSensitivity": 6.2
+        },
+        "sms": {
+          "Extraversion": 2.6,
+          "OtherDirectedness": 1.8333333333333333,
+          "Acting": 1.5
+        },
+        "ios": 2
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "CF",
+        "gender": "Female",
+        "age": 40,
+        "profession": "Four-year college",
+        "residence": "Tokyo",
+        "life_experience": "私はイラストを描くのが好きでたまに仕事として依頼されます。\n神奈川県で生まれ育ちました。\n毎朝５時に起きて家族の世話をしています。\n毎朝のお弁当作りを10年以上しています。\n寝ることが好きで、休日はできるだけ寝ていたいです。\n駅前のスーパーによく買い物に行きます。\n私の長所は相手の良いところを探して誰とでも楽しく会話ができることです。\n私の短所は人に合わせて動くので常にストレスがたまるところです。\n趣味は自転車を使った散歩のポタリングです。\n得意な料理はハンバーグで家族からは好評です。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 4.333333333333333,
+            "Conscientiousness": 3.3333333333333335,
+            "Extraversion": 3.4166666666666665,
+            "Agreeableness": 4.083333333333333,
+            "Neuroticism": 5.833333333333333
+          },
+          "kiss18": {
+            "BasicSkill": 3.0,
+            "AdvancedSkill": 2.3333333333333335,
+            "EmotionalManagementSkill": 2.3333333333333335,
+            "OffenceManagementSkill": 3.0,
+            "StressManagementSkill": 3.3333333333333335,
+            "PlanningSkill": 3.3333333333333335
+          },
+          "atq": {
+            "Fear": 5.571428571428571,
+            "Frustration": 3.1666666666666665,
+            "Sadness": 5.571428571428571,
+            "Discomfort": 5.833333333333333,
+            "ActivationControl": 5.0,
+            "AttentionalControl": 3.8,
+            "InhibitoryControl": 4.714285714285714,
+            "Sociability": 2.8,
+            "HighIntensityPleasure": 4.285714285714286,
+            "PositiveAffect": 4.2,
+            "NeutralPerceptualSensitivity": 6.0,
+            "AffectivePerceptualSensitivity": 5.6,
+            "AssociativeSensitivity": 6.2
+          },
+          "sms": {
+            "Extraversion": 2.6,
+            "OtherDirectedness": 1.8333333333333333,
+            "Acting": 1.5
+          },
+          "ios": 2
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "6f73ae0ad4e6bee13ee98b254aeef849"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "ごんばんは！"
+      },
+      {
+        "role": "assistant",
+        "content": "こんばんは！夕飯は食べましたか？"
+      },
+      {
+        "role": "user",
+        "content": "はい、19時ごろに食べました、あなたは？"
+      }
+    ],
+    "next_question": "奇遇ですね！私も19時くらいにハンバーグ食べました！",
+    "user_profile": {
+      "name": "CF",
+      "gender": "Female",
+      "age": 40,
+      "profession": "Four-year college",
+      "residence": "Tokyo",
+      "life_experience": "私はイラストを描くのが好きでたまに仕事として依頼されます。\n神奈川県で生まれ育ちました。\n毎朝５時に起きて家族の世話をしています。\n毎朝のお弁当作りを10年以上しています。\n寝ることが好きで、休日はできるだけ寝ていたいです。\n駅前のスーパーによく買い物に行きます。\n私の長所は相手の良いところを探して誰とでも楽しく会話ができることです。\n私の短所は人に合わせて動くので常にストレスがたまるところです。\n趣味は自転車を使った散歩のポタリングです。\n得意な料理はハンバーグで家族からは好評です。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 4.333333333333333,
+          "Conscientiousness": 3.3333333333333335,
+          "Extraversion": 3.4166666666666665,
+          "Agreeableness": 4.083333333333333,
+          "Neuroticism": 5.833333333333333
+        },
+        "kiss18": {
+          "BasicSkill": 3.0,
+          "AdvancedSkill": 2.3333333333333335,
+          "EmotionalManagementSkill": 2.3333333333333335,
+          "OffenceManagementSkill": 3.0,
+          "StressManagementSkill": 3.3333333333333335,
+          "PlanningSkill": 3.3333333333333335
+        },
+        "atq": {
+          "Fear": 5.571428571428571,
+          "Frustration": 3.1666666666666665,
+          "Sadness": 5.571428571428571,
+          "Discomfort": 5.833333333333333,
+          "ActivationControl": 5.0,
+          "AttentionalControl": 3.8,
+          "InhibitoryControl": 4.714285714285714,
+          "Sociability": 2.8,
+          "HighIntensityPleasure": 4.285714285714286,
+          "PositiveAffect": 4.2,
+          "NeutralPerceptualSensitivity": 6.0,
+          "AffectivePerceptualSensitivity": 5.6,
+          "AssociativeSensitivity": 6.2
+        },
+        "sms": {
+          "Extraversion": 2.6,
+          "OtherDirectedness": 1.8333333333333333,
+          "Acting": 1.5
+        },
+        "ios": 2
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "CF",
+        "gender": "Female",
+        "age": 40,
+        "profession": "Four-year college",
+        "residence": "Tokyo",
+        "life_experience": "私はイラストを描くのが好きでたまに仕事として依頼されます。\n神奈川県で生まれ育ちました。\n毎朝５時に起きて家族の世話をしています。\n毎朝のお弁当作りを10年以上しています。\n寝ることが好きで、休日はできるだけ寝ていたいです。\n駅前のスーパーによく買い物に行きます。\n私の長所は相手の良いところを探して誰とでも楽しく会話ができることです。\n私の短所は人に合わせて動くので常にストレスがたまるところです。\n趣味は自転車を使った散歩のポタリングです。\n得意な料理はハンバーグで家族からは好評です。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 4.333333333333333,
+            "Conscientiousness": 3.3333333333333335,
+            "Extraversion": 3.4166666666666665,
+            "Agreeableness": 4.083333333333333,
+            "Neuroticism": 5.833333333333333
+          },
+          "kiss18": {
+            "BasicSkill": 3.0,
+            "AdvancedSkill": 2.3333333333333335,
+            "EmotionalManagementSkill": 2.3333333333333335,
+            "OffenceManagementSkill": 3.0,
+            "StressManagementSkill": 3.3333333333333335,
+            "PlanningSkill": 3.3333333333333335
+          },
+          "atq": {
+            "Fear": 5.571428571428571,
+            "Frustration": 3.1666666666666665,
+            "Sadness": 5.571428571428571,
+            "Discomfort": 5.833333333333333,
+            "ActivationControl": 5.0,
+            "AttentionalControl": 3.8,
+            "InhibitoryControl": 4.714285714285714,
+            "Sociability": 2.8,
+            "HighIntensityPleasure": 4.285714285714286,
+            "PositiveAffect": 4.2,
+            "NeutralPerceptualSensitivity": 6.0,
+            "AffectivePerceptualSensitivity": 5.6,
+            "AssociativeSensitivity": 6.2
+          },
+          "sms": {
+            "Extraversion": 2.6,
+            "OtherDirectedness": 1.8333333333333333,
+            "Acting": 1.5
+          },
+          "ios": 2
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "6f73ae0ad4e6bee13ee98b254aeef849"
+  },
+  {
+    "context": [
+      {
+        "role": "assistant",
+        "content": "こんにちは！"
+      },
+      {
+        "role": "user",
+        "content": "こんにちは！"
+      },
+      {
+        "role": "assistant",
+        "content": "この土日で何かされましたか？"
+      },
+      {
+        "role": "user",
+        "content": "あんまり何もしてないかも、しいていえばピアノの練習"
+      },
+      {
+        "role": "assistant",
+        "content": "ピアノ弾けるのですね、どれくらい続けているのですか？"
+      },
+      {
+        "role": "user",
+        "content": "大人になって再開しましたが、はやいものでもう数年以上たちますね"
+      }
+    ],
+    "next_question": "数年も続けられるのですね！",
+    "user_profile": {
+      "name": "AH",
+      "gender": "Male",
+      "profession": "Other",
+      "residence": "Saitama",
+      "life_experience": "私は学生である。\n埼玉県出身である。\n私は毎日朝食を食べない。\n私は毎日ウォーキングをする。\n私はよくコンビニに行く。\n私はタイピングが早い。\n自分は物覚えが悪い。\n自分は将来の目標が明確に決まっている。\n毎日楽しいことを見つけられる。\n自分は好きなものにはとことんこだわる。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 5.25,
+          "Conscientiousness": 3.1666666666666665,
+          "Extraversion": 3.3333333333333335,
+          "Agreeableness": 4.166666666666667,
+          "Neuroticism": 4.416666666666667
+        },
+        "kiss18": {
+          "BasicSkill": 4.0,
+          "AdvancedSkill": 4.333333333333333,
+          "EmotionalManagementSkill": 4.0,
+          "OffenceManagementSkill": 4.0,
+          "StressManagementSkill": 4.0,
+          "PlanningSkill": 4.666666666666667
+        },
+        "atq": {
+          "Fear": 5.0,
+          "Frustration": 3.5,
+          "Sadness": 3.0,
+          "Discomfort": 3.3333333333333335,
+          "ActivationControl": 3.7142857142857144,
+          "AttentionalControl": 3.8,
+          "InhibitoryControl": 3.142857142857143,
+          "Sociability": 4.0,
+          "HighIntensityPleasure": 4.571428571428571,
+          "PositiveAffect": 3.4,
+          "NeutralPerceptualSensitivity": 4.2,
+          "AffectivePerceptualSensitivity": 4.4,
+          "AssociativeSensitivity": 4.8
+        },
+        "sms": {
+          "Extraversion": 2.6,
+          "OtherDirectedness": 3.5833333333333335,
+          "Acting": 3.75
+        },
+        "ios": 4
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "AH",
+        "gender": "Male",
+        "profession": "Other",
+        "residence": "Saitama",
+        "life_experience": "私は学生である。\n埼玉県出身である。\n私は毎日朝食を食べない。\n私は毎日ウォーキングをする。\n私はよくコンビニに行く。\n私はタイピングが早い。\n自分は物覚えが悪い。\n自分は将来の目標が明確に決まっている。\n毎日楽しいことを見つけられる。\n自分は好きなものにはとことんこだわる。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 5.25,
+            "Conscientiousness": 3.1666666666666665,
+            "Extraversion": 3.3333333333333335,
+            "Agreeableness": 4.166666666666667,
+            "Neuroticism": 4.416666666666667
+          },
+          "kiss18": {
+            "BasicSkill": 4.0,
+            "AdvancedSkill": 4.333333333333333,
+            "EmotionalManagementSkill": 4.0,
+            "OffenceManagementSkill": 4.0,
+            "StressManagementSkill": 4.0,
+            "PlanningSkill": 4.666666666666667
+          },
+          "atq": {
+            "Fear": 5.0,
+            "Frustration": 3.5,
+            "Sadness": 3.0,
+            "Discomfort": 3.3333333333333335,
+            "ActivationControl": 3.7142857142857144,
+            "AttentionalControl": 3.8,
+            "InhibitoryControl": 3.142857142857143,
+            "Sociability": 4.0,
+            "HighIntensityPleasure": 4.571428571428571,
+            "PositiveAffect": 3.4,
+            "NeutralPerceptualSensitivity": 4.2,
+            "AffectivePerceptualSensitivity": 4.4,
+            "AssociativeSensitivity": 4.8
+          },
+          "sms": {
+            "Extraversion": 2.6,
+            "OtherDirectedness": 3.5833333333333335,
+            "Acting": 3.75
+          },
+          "ios": 4
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "6fa56b829ea8a92f39b3835b99826e63"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "よろしくお願いします"
+      },
+      {
+        "role": "assistant",
+        "content": "こちらこそ、よろしくお願いします！"
+      },
+      {
+        "role": "user",
+        "content": "ちな、お昼は何を食べられましたか"
+      },
+      {
+        "role": "assistant",
+        "content": "もう食べましたよ！"
+      },
+      {
+        "role": "user",
+        "content": "ほうほう、何を食べましたか"
+      },
+      {
+        "role": "assistant",
+        "content": "台湾風まぜそばというものを食べました。"
+      },
+      {
+        "role": "user",
+        "content": "おもしろい、台湾風ですか、風"
+      },
+      {
+        "role": "assistant",
+        "content": "はい、売っていたのでつい買ってしまいました。"
+      },
+      {
+        "role": "user",
+        "content": "あ、売っているものなのですね、どんな麺なのですか"
+      },
+      {
+        "role": "assistant",
+        "content": "麺は他のものと変わらなかったですが、野菜が多かったです。"
+      },
+      {
+        "role": "user",
+        "content": "辛いタイプですか"
+      },
+      {
+        "role": "assistant",
+        "content": "お肉と卵が入っているのですが、そのお肉がピリ辛でした。"
+      },
+      {
+        "role": "user",
+        "content": "いいですね、夏向けかもしれません、冷やし中華っぽい"
+      }
+    ],
+    "next_question": "はい、食べやすかったですよ！",
+    "user_profile": {
+      "name": "AH",
+      "gender": "Male",
+      "profession": "Other",
+      "residence": "Saitama",
+      "life_experience": "私は学生である。\n埼玉県出身である。\n私は毎日朝食を食べない。\n私は毎日ウォーキングをする。\n私はよくコンビニに行く。\n私はタイピングが早い。\n自分は物覚えが悪い。\n自分は将来の目標が明確に決まっている。\n毎日楽しいことを見つけられる。\n自分は好きなものにはとことんこだわる。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 5.25,
+          "Conscientiousness": 3.1666666666666665,
+          "Extraversion": 3.3333333333333335,
+          "Agreeableness": 4.166666666666667,
+          "Neuroticism": 4.416666666666667
+        },
+        "kiss18": {
+          "BasicSkill": 4.0,
+          "AdvancedSkill": 4.333333333333333,
+          "EmotionalManagementSkill": 4.0,
+          "OffenceManagementSkill": 4.0,
+          "StressManagementSkill": 4.0,
+          "PlanningSkill": 4.666666666666667
+        },
+        "atq": {
+          "Fear": 5.0,
+          "Frustration": 3.5,
+          "Sadness": 3.0,
+          "Discomfort": 3.3333333333333335,
+          "ActivationControl": 3.7142857142857144,
+          "AttentionalControl": 3.8,
+          "InhibitoryControl": 3.142857142857143,
+          "Sociability": 4.0,
+          "HighIntensityPleasure": 4.571428571428571,
+          "PositiveAffect": 3.4,
+          "NeutralPerceptualSensitivity": 4.2,
+          "AffectivePerceptualSensitivity": 4.4,
+          "AssociativeSensitivity": 4.8
+        },
+        "sms": {
+          "Extraversion": 2.6,
+          "OtherDirectedness": 3.5833333333333335,
+          "Acting": 3.75
+        },
+        "ios": 4
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "AH",
+        "gender": "Male",
+        "profession": "Other",
+        "residence": "Saitama",
+        "life_experience": "私は学生である。\n埼玉県出身である。\n私は毎日朝食を食べない。\n私は毎日ウォーキングをする。\n私はよくコンビニに行く。\n私はタイピングが早い。\n自分は物覚えが悪い。\n自分は将来の目標が明確に決まっている。\n毎日楽しいことを見つけられる。\n自分は好きなものにはとことんこだわる。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 5.25,
+            "Conscientiousness": 3.1666666666666665,
+            "Extraversion": 3.3333333333333335,
+            "Agreeableness": 4.166666666666667,
+            "Neuroticism": 4.416666666666667
+          },
+          "kiss18": {
+            "BasicSkill": 4.0,
+            "AdvancedSkill": 4.333333333333333,
+            "EmotionalManagementSkill": 4.0,
+            "OffenceManagementSkill": 4.0,
+            "StressManagementSkill": 4.0,
+            "PlanningSkill": 4.666666666666667
+          },
+          "atq": {
+            "Fear": 5.0,
+            "Frustration": 3.5,
+            "Sadness": 3.0,
+            "Discomfort": 3.3333333333333335,
+            "ActivationControl": 3.7142857142857144,
+            "AttentionalControl": 3.8,
+            "InhibitoryControl": 3.142857142857143,
+            "Sociability": 4.0,
+            "HighIntensityPleasure": 4.571428571428571,
+            "PositiveAffect": 3.4,
+            "NeutralPerceptualSensitivity": 4.2,
+            "AffectivePerceptualSensitivity": 4.4,
+            "AssociativeSensitivity": 4.8
+          },
+          "sms": {
+            "Extraversion": 2.6,
+            "OtherDirectedness": 3.5833333333333335,
+            "Acting": 3.75
+          },
+          "ios": 4
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "6fa56b829ea8a92f39b3835b99826e63"
+  },
+  {
+    "context": [
+      {
+        "role": "assistant",
+        "content": "こんにちは！"
+      },
+      {
+        "role": "user",
+        "content": "こんにちは！"
+      },
+      {
+        "role": "assistant",
+        "content": "この土日で何かされましたか？"
+      },
+      {
+        "role": "user",
+        "content": "あんまり何もしてないかも、しいていえばピアノの練習"
+      },
+      {
+        "role": "assistant",
+        "content": "ピアノ弾けるのですね、どれくらい続けているのですか？"
+      },
+      {
+        "role": "user",
+        "content": "大人になって再開しましたが、はやいものでもう数年以上たちますね"
+      },
+      {
+        "role": "assistant",
+        "content": "数年も続けられるのですね！"
+      },
+      {
+        "role": "user",
+        "content": "子供の頃からあわせると、もう数十年かも"
+      }
+    ],
+    "next_question": "そんなに続けられるのが羨ましいです！",
+    "user_profile": {
+      "name": "AH",
+      "gender": "Male",
+      "profession": "Other",
+      "residence": "Saitama",
+      "life_experience": "私は学生である。\n埼玉県出身である。\n私は毎日朝食を食べない。\n私は毎日ウォーキングをする。\n私はよくコンビニに行く。\n私はタイピングが早い。\n自分は物覚えが悪い。\n自分は将来の目標が明確に決まっている。\n毎日楽しいことを見つけられる。\n自分は好きなものにはとことんこだわる。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 5.25,
+          "Conscientiousness": 3.1666666666666665,
+          "Extraversion": 3.3333333333333335,
+          "Agreeableness": 4.166666666666667,
+          "Neuroticism": 4.416666666666667
+        },
+        "kiss18": {
+          "BasicSkill": 4.0,
+          "AdvancedSkill": 4.333333333333333,
+          "EmotionalManagementSkill": 4.0,
+          "OffenceManagementSkill": 4.0,
+          "StressManagementSkill": 4.0,
+          "PlanningSkill": 4.666666666666667
+        },
+        "atq": {
+          "Fear": 5.0,
+          "Frustration": 3.5,
+          "Sadness": 3.0,
+          "Discomfort": 3.3333333333333335,
+          "ActivationControl": 3.7142857142857144,
+          "AttentionalControl": 3.8,
+          "InhibitoryControl": 3.142857142857143,
+          "Sociability": 4.0,
+          "HighIntensityPleasure": 4.571428571428571,
+          "PositiveAffect": 3.4,
+          "NeutralPerceptualSensitivity": 4.2,
+          "AffectivePerceptualSensitivity": 4.4,
+          "AssociativeSensitivity": 4.8
+        },
+        "sms": {
+          "Extraversion": 2.6,
+          "OtherDirectedness": 3.5833333333333335,
+          "Acting": 3.75
+        },
+        "ios": 4
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "AH",
+        "gender": "Male",
+        "profession": "Other",
+        "residence": "Saitama",
+        "life_experience": "私は学生である。\n埼玉県出身である。\n私は毎日朝食を食べない。\n私は毎日ウォーキングをする。\n私はよくコンビニに行く。\n私はタイピングが早い。\n自分は物覚えが悪い。\n自分は将来の目標が明確に決まっている。\n毎日楽しいことを見つけられる。\n自分は好きなものにはとことんこだわる。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 5.25,
+            "Conscientiousness": 3.1666666666666665,
+            "Extraversion": 3.3333333333333335,
+            "Agreeableness": 4.166666666666667,
+            "Neuroticism": 4.416666666666667
+          },
+          "kiss18": {
+            "BasicSkill": 4.0,
+            "AdvancedSkill": 4.333333333333333,
+            "EmotionalManagementSkill": 4.0,
+            "OffenceManagementSkill": 4.0,
+            "StressManagementSkill": 4.0,
+            "PlanningSkill": 4.666666666666667
+          },
+          "atq": {
+            "Fear": 5.0,
+            "Frustration": 3.5,
+            "Sadness": 3.0,
+            "Discomfort": 3.3333333333333335,
+            "ActivationControl": 3.7142857142857144,
+            "AttentionalControl": 3.8,
+            "InhibitoryControl": 3.142857142857143,
+            "Sociability": 4.0,
+            "HighIntensityPleasure": 4.571428571428571,
+            "PositiveAffect": 3.4,
+            "NeutralPerceptualSensitivity": 4.2,
+            "AffectivePerceptualSensitivity": 4.4,
+            "AssociativeSensitivity": 4.8
+          },
+          "sms": {
+            "Extraversion": 2.6,
+            "OtherDirectedness": 3.5833333333333335,
+            "Acting": 3.75
+          },
+          "ios": 4
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "6fa56b829ea8a92f39b3835b99826e63"
+  },
+  {
+    "context": [
+      {
+        "role": "user",
+        "content": "よろしくお願いします"
+      },
+      {
+        "role": "assistant",
+        "content": "こちらこそ、よろしくお願いします！"
+      },
+      {
+        "role": "user",
+        "content": "ちな、お昼は何を食べられましたか"
+      }
+    ],
+    "next_question": "もう食べましたよ！",
+    "user_profile": {
+      "name": "AH",
+      "gender": "Male",
+      "profession": "Other",
+      "residence": "Saitama",
+      "life_experience": "私は学生である。\n埼玉県出身である。\n私は毎日朝食を食べない。\n私は毎日ウォーキングをする。\n私はよくコンビニに行く。\n私はタイピングが早い。\n自分は物覚えが悪い。\n自分は将来の目標が明確に決まっている。\n毎日楽しいことを見つけられる。\n自分は好きなものにはとことんこだわる。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 5.25,
+          "Conscientiousness": 3.1666666666666665,
+          "Extraversion": 3.3333333333333335,
+          "Agreeableness": 4.166666666666667,
+          "Neuroticism": 4.416666666666667
+        },
+        "kiss18": {
+          "BasicSkill": 4.0,
+          "AdvancedSkill": 4.333333333333333,
+          "EmotionalManagementSkill": 4.0,
+          "OffenceManagementSkill": 4.0,
+          "StressManagementSkill": 4.0,
+          "PlanningSkill": 4.666666666666667
+        },
+        "atq": {
+          "Fear": 5.0,
+          "Frustration": 3.5,
+          "Sadness": 3.0,
+          "Discomfort": 3.3333333333333335,
+          "ActivationControl": 3.7142857142857144,
+          "AttentionalControl": 3.8,
+          "InhibitoryControl": 3.142857142857143,
+          "Sociability": 4.0,
+          "HighIntensityPleasure": 4.571428571428571,
+          "PositiveAffect": 3.4,
+          "NeutralPerceptualSensitivity": 4.2,
+          "AffectivePerceptualSensitivity": 4.4,
+          "AssociativeSensitivity": 4.8
+        },
+        "sms": {
+          "Extraversion": 2.6,
+          "OtherDirectedness": 3.5833333333333335,
+          "Acting": 3.75
+        },
+        "ios": 4
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "AH",
+        "gender": "Male",
+        "profession": "Other",
+        "residence": "Saitama",
+        "life_experience": "私は学生である。\n埼玉県出身である。\n私は毎日朝食を食べない。\n私は毎日ウォーキングをする。\n私はよくコンビニに行く。\n私はタイピングが早い。\n自分は物覚えが悪い。\n自分は将来の目標が明確に決まっている。\n毎日楽しいことを見つけられる。\n自分は好きなものにはとことんこだわる。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 5.25,
+            "Conscientiousness": 3.1666666666666665,
+            "Extraversion": 3.3333333333333335,
+            "Agreeableness": 4.166666666666667,
+            "Neuroticism": 4.416666666666667
+          },
+          "kiss18": {
+            "BasicSkill": 4.0,
+            "AdvancedSkill": 4.333333333333333,
+            "EmotionalManagementSkill": 4.0,
+            "OffenceManagementSkill": 4.0,
+            "StressManagementSkill": 4.0,
+            "PlanningSkill": 4.666666666666667
+          },
+          "atq": {
+            "Fear": 5.0,
+            "Frustration": 3.5,
+            "Sadness": 3.0,
+            "Discomfort": 3.3333333333333335,
+            "ActivationControl": 3.7142857142857144,
+            "AttentionalControl": 3.8,
+            "InhibitoryControl": 3.142857142857143,
+            "Sociability": 4.0,
+            "HighIntensityPleasure": 4.571428571428571,
+            "PositiveAffect": 3.4,
+            "NeutralPerceptualSensitivity": 4.2,
+            "AffectivePerceptualSensitivity": 4.4,
+            "AssociativeSensitivity": 4.8
+          },
+          "sms": {
+            "Extraversion": 2.6,
+            "OtherDirectedness": 3.5833333333333335,
+            "Acting": 3.75
+          },
+          "ios": 4
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "6fa56b829ea8a92f39b3835b99826e63"
+  },
+  {
+    "context": [
+      {
+        "role": "assistant",
+        "content": "よろしくお願いします。趣味や好きなことは何ですか？"
+      },
+      {
+        "role": "user",
+        "content": "お願いします！音楽ですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "音楽ですか！自分も好きです。どういう音楽ですか？"
+      },
+      {
+        "role": "user",
+        "content": "好きなジャンルってことですか？"
+      },
+      {
+        "role": "assistant",
+        "content": "ジャンルですとか歌なのか楽器なのかとか。"
+      },
+      {
+        "role": "user",
+        "content": "何でも聴きますよ。歌ものもインストも、楽器も触るの好きです。"
+      },
+      {
+        "role": "assistant",
+        "content": "オールジャンルなんですね。今は何が一番好きですか？"
+      },
+      {
+        "role": "user",
+        "content": "なんでしょうね。90年代の音楽が好きです。"
+      },
+      {
+        "role": "assistant",
+        "content": "いいですね！懐メロ！自分も好きです！"
+      },
+      {
+        "role": "user",
+        "content": "なにがすきです？"
+      },
+      {
+        "role": "assistant",
+        "content": "今パッと思いついたのは米米CLUBですかね。"
+      },
+      {
+        "role": "user",
+        "content": "いいですね。懐かしい。"
+      },
+      {
+        "role": "assistant",
+        "content": "リアルタイムじゃなくて解散して復帰した頃、コンサートよく行ってました。"
+      },
+      {
+        "role": "user",
+        "content": "それぐらい好きなんですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "一度ノリで行ったら、コンサートの楽しさにハマってしまいました。"
+      },
+      {
+        "role": "user",
+        "content": "生はいいですよね。最近は全く行けてないですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "コロナになってからライブとか中止になったりで行きづらいですよね。"
+      },
+      {
+        "role": "user",
+        "content": "それもありますね。"
+      },
+      {
+        "role": "assistant",
+        "content": "メンバーが1人お休みになっちゃうと、なんかなって感じします。"
+      },
+      {
+        "role": "user",
+        "content": "そうですね。LIVEよりも、お家で聞く環境がだれもが良いものを揃えられる時代なので。"
+      }
+    ],
+    "next_question": "確かに。音源装置とかVRとかレベルが上がると、わざわざ行かなくてもってなるかもですね。",
+    "user_profile": {
+      "name": "CX",
+      "gender": "Male",
+      "age": 30,
+      "profession": "Four-year college",
+      "residence": "Hokkaido",
+      "life_experience": "私は病気で働けない。\n今は無職だ。\n北海道在住だ。\n野球を見るのが好きだ。\n人と関わるのが好きだ。\n朝に散歩をしている。\n本を読むのが好きだ。\n心理学の勉強をするのが趣味だ。\n肉が好きだ。\n占いの仕事がやりたい。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 5.083333333333333,
+          "Conscientiousness": 4.083333333333333,
+          "Extraversion": 5.0,
+          "Agreeableness": 4.916666666666667,
+          "Neuroticism": 5.75
+        },
+        "kiss18": {
+          "BasicSkill": 4.0,
+          "AdvancedSkill": 3.3333333333333335,
+          "EmotionalManagementSkill": 2.0,
+          "OffenceManagementSkill": 2.6666666666666665,
+          "StressManagementSkill": 2.6666666666666665,
+          "PlanningSkill": 2.6666666666666665
+        },
+        "atq": {
+          "Fear": 4.428571428571429,
+          "Frustration": 4.5,
+          "Sadness": 5.0,
+          "Discomfort": 3.8333333333333335,
+          "ActivationControl": 4.285714285714286,
+          "AttentionalControl": 2.6,
+          "InhibitoryControl": 4.285714285714286,
+          "Sociability": 4.6,
+          "HighIntensityPleasure": 3.4285714285714284,
+          "PositiveAffect": 2.4,
+          "NeutralPerceptualSensitivity": 4.4,
+          "AffectivePerceptualSensitivity": 4.4,
+          "AssociativeSensitivity": 4.8
+        },
+        "sms": {
+          "Extraversion": 2.4,
+          "OtherDirectedness": 3.0833333333333335,
+          "Acting": 3.0
+        },
+        "ios": 5
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "CX",
+        "gender": "Male",
+        "age": 30,
+        "profession": "Four-year college",
+        "residence": "Hokkaido",
+        "life_experience": "私は病気で働けない。\n今は無職だ。\n北海道在住だ。\n野球を見るのが好きだ。\n人と関わるのが好きだ。\n朝に散歩をしている。\n本を読むのが好きだ。\n心理学の勉強をするのが趣味だ。\n肉が好きだ。\n占いの仕事がやりたい。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 5.083333333333333,
+            "Conscientiousness": 4.083333333333333,
+            "Extraversion": 5.0,
+            "Agreeableness": 4.916666666666667,
+            "Neuroticism": 5.75
+          },
+          "kiss18": {
+            "BasicSkill": 4.0,
+            "AdvancedSkill": 3.3333333333333335,
+            "EmotionalManagementSkill": 2.0,
+            "OffenceManagementSkill": 2.6666666666666665,
+            "StressManagementSkill": 2.6666666666666665,
+            "PlanningSkill": 2.6666666666666665
+          },
+          "atq": {
+            "Fear": 4.428571428571429,
+            "Frustration": 4.5,
+            "Sadness": 5.0,
+            "Discomfort": 3.8333333333333335,
+            "ActivationControl": 4.285714285714286,
+            "AttentionalControl": 2.6,
+            "InhibitoryControl": 4.285714285714286,
+            "Sociability": 4.6,
+            "HighIntensityPleasure": 3.4285714285714284,
+            "PositiveAffect": 2.4,
+            "NeutralPerceptualSensitivity": 4.4,
+            "AffectivePerceptualSensitivity": 4.4,
+            "AssociativeSensitivity": 4.8
+          },
+          "sms": {
+            "Extraversion": 2.4,
+            "OtherDirectedness": 3.0833333333333335,
+            "Acting": 3.0
+          },
+          "ios": 5
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "8980ca47c65fc5b0daf262916e773d6b"
+  },
+  {
+    "context": [
+      {
+        "role": "assistant",
+        "content": "よろしくお願いします。趣味や好きなことは何ですか？"
+      },
+      {
+        "role": "user",
+        "content": "お願いします！音楽ですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "音楽ですか！自分も好きです。どういう音楽ですか？"
+      },
+      {
+        "role": "user",
+        "content": "好きなジャンルってことですか？"
+      },
+      {
+        "role": "assistant",
+        "content": "ジャンルですとか歌なのか楽器なのかとか。"
+      },
+      {
+        "role": "user",
+        "content": "何でも聴きますよ。歌ものもインストも、楽器も触るの好きです。"
+      },
+      {
+        "role": "assistant",
+        "content": "オールジャンルなんですね。今は何が一番好きですか？"
+      },
+      {
+        "role": "user",
+        "content": "なんでしょうね。90年代の音楽が好きです。"
+      },
+      {
+        "role": "assistant",
+        "content": "いいですね！懐メロ！自分も好きです！"
+      },
+      {
+        "role": "user",
+        "content": "なにがすきです？"
+      },
+      {
+        "role": "assistant",
+        "content": "今パッと思いついたのは米米CLUBですかね。"
+      },
+      {
+        "role": "user",
+        "content": "いいですね。懐かしい。"
+      },
+      {
+        "role": "assistant",
+        "content": "リアルタイムじゃなくて解散して復帰した頃、コンサートよく行ってました。"
+      },
+      {
+        "role": "user",
+        "content": "それぐらい好きなんですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "一度ノリで行ったら、コンサートの楽しさにハマってしまいました。"
+      },
+      {
+        "role": "user",
+        "content": "生はいいですよね。最近は全く行けてないですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "コロナになってからライブとか中止になったりで行きづらいですよね。"
+      },
+      {
+        "role": "user",
+        "content": "それもありますね。"
+      },
+      {
+        "role": "assistant",
+        "content": "メンバーが1人お休みになっちゃうと、なんかなって感じします。"
+      },
+      {
+        "role": "user",
+        "content": "そうですね。LIVEよりも、お家で聞く環境がだれもが良いものを揃えられる時代なので。"
+      },
+      {
+        "role": "assistant",
+        "content": "確かに。音源装置とかVRとかレベルが上がると、わざわざ行かなくてもってなるかもですね。"
+      },
+      {
+        "role": "user",
+        "content": "ですね。それでもLIVEの良さもわかります。この時期やとフェスとかいいですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうなんですよね。でもそのフェスも出演者が当日キャンセルとかで辛いです。"
+      },
+      {
+        "role": "user",
+        "content": "そのアーティスト目当ての人は残念ですね。本人が一番つらいですが。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうなんですよ。それで遠方のライブとか行きづらいっていうのもあります。"
+      },
+      {
+        "role": "user",
+        "content": "遠方やと、チケット以外にも出費が重なりますからね。"
+      },
+      {
+        "role": "assistant",
+        "content": "本当です。わざわざ高い金出して、そのアーティストいなかったら辛すぎます。"
+      },
+      {
+        "role": "user",
+        "content": "たしかに。それはつらいです。フェス自体を楽しみましょう。"
+      }
+    ],
+    "next_question": "そうですね。フェスならお気に入り以外のアーティストさんも楽しめますし。",
+    "user_profile": {
+      "name": "CX",
+      "gender": "Male",
+      "age": 30,
+      "profession": "Four-year college",
+      "residence": "Hokkaido",
+      "life_experience": "私は病気で働けない。\n今は無職だ。\n北海道在住だ。\n野球を見るのが好きだ。\n人と関わるのが好きだ。\n朝に散歩をしている。\n本を読むのが好きだ。\n心理学の勉強をするのが趣味だ。\n肉が好きだ。\n占いの仕事がやりたい。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 5.083333333333333,
+          "Conscientiousness": 4.083333333333333,
+          "Extraversion": 5.0,
+          "Agreeableness": 4.916666666666667,
+          "Neuroticism": 5.75
+        },
+        "kiss18": {
+          "BasicSkill": 4.0,
+          "AdvancedSkill": 3.3333333333333335,
+          "EmotionalManagementSkill": 2.0,
+          "OffenceManagementSkill": 2.6666666666666665,
+          "StressManagementSkill": 2.6666666666666665,
+          "PlanningSkill": 2.6666666666666665
+        },
+        "atq": {
+          "Fear": 4.428571428571429,
+          "Frustration": 4.5,
+          "Sadness": 5.0,
+          "Discomfort": 3.8333333333333335,
+          "ActivationControl": 4.285714285714286,
+          "AttentionalControl": 2.6,
+          "InhibitoryControl": 4.285714285714286,
+          "Sociability": 4.6,
+          "HighIntensityPleasure": 3.4285714285714284,
+          "PositiveAffect": 2.4,
+          "NeutralPerceptualSensitivity": 4.4,
+          "AffectivePerceptualSensitivity": 4.4,
+          "AssociativeSensitivity": 4.8
+        },
+        "sms": {
+          "Extraversion": 2.4,
+          "OtherDirectedness": 3.0833333333333335,
+          "Acting": 3.0
+        },
+        "ios": 5
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "CX",
+        "gender": "Male",
+        "age": 30,
+        "profession": "Four-year college",
+        "residence": "Hokkaido",
+        "life_experience": "私は病気で働けない。\n今は無職だ。\n北海道在住だ。\n野球を見るのが好きだ。\n人と関わるのが好きだ。\n朝に散歩をしている。\n本を読むのが好きだ。\n心理学の勉強をするのが趣味だ。\n肉が好きだ。\n占いの仕事がやりたい。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 5.083333333333333,
+            "Conscientiousness": 4.083333333333333,
+            "Extraversion": 5.0,
+            "Agreeableness": 4.916666666666667,
+            "Neuroticism": 5.75
+          },
+          "kiss18": {
+            "BasicSkill": 4.0,
+            "AdvancedSkill": 3.3333333333333335,
+            "EmotionalManagementSkill": 2.0,
+            "OffenceManagementSkill": 2.6666666666666665,
+            "StressManagementSkill": 2.6666666666666665,
+            "PlanningSkill": 2.6666666666666665
+          },
+          "atq": {
+            "Fear": 4.428571428571429,
+            "Frustration": 4.5,
+            "Sadness": 5.0,
+            "Discomfort": 3.8333333333333335,
+            "ActivationControl": 4.285714285714286,
+            "AttentionalControl": 2.6,
+            "InhibitoryControl": 4.285714285714286,
+            "Sociability": 4.6,
+            "HighIntensityPleasure": 3.4285714285714284,
+            "PositiveAffect": 2.4,
+            "NeutralPerceptualSensitivity": 4.4,
+            "AffectivePerceptualSensitivity": 4.4,
+            "AssociativeSensitivity": 4.8
+          },
+          "sms": {
+            "Extraversion": 2.4,
+            "OtherDirectedness": 3.0833333333333335,
+            "Acting": 3.0
+          },
+          "ios": 5
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "8980ca47c65fc5b0daf262916e773d6b"
+  },
+  {
+    "context": [
+      {
+        "role": "assistant",
+        "content": "こんにちは！よろしくお願いします！"
+      },
+      {
+        "role": "user",
+        "content": "こんにちは！お願いします！"
+      },
+      {
+        "role": "assistant",
+        "content": "そちらは今日はどんなお天気ですか？"
+      },
+      {
+        "role": "user",
+        "content": "今はまだ晴れてますね。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうなんですね、こちらも今日は晴天です。"
+      },
+      {
+        "role": "user",
+        "content": "予報では雨なんですけど、台風来るのでしょうか？"
+      },
+      {
+        "role": "assistant",
+        "content": "ニュースで見ました。来ないといいですね。"
+      },
+      {
+        "role": "user",
+        "content": "台風ぶち当たりますか？"
+      },
+      {
+        "role": "assistant",
+        "content": "実は自分北海道で、まだそういう情報は入ってこないんですよ。"
+      },
+      {
+        "role": "user",
+        "content": "その辺まで行ったらもう消えてますね。北海道台風少なそう。"
+      },
+      {
+        "role": "assistant",
+        "content": "そうですね。あまり台風の影響とかは来ないですね、いつも。"
+      },
+      {
+        "role": "user",
+        "content": "いいですね。湿度もあまり高くなさそうだし。"
+      },
+      {
+        "role": "assistant",
+        "content": "それが今年はやけに雨が降って、結構ムシムシしてます。"
+      },
+      {
+        "role": "user",
+        "content": "そうなんですね。本州きたらもっと暑いですよ。"
+      }
+    ],
+    "next_question": "今年の7月頭に東京行ったのですが、暑すぎました。",
+    "user_profile": {
+      "name": "CX",
+      "gender": "Male",
+      "age": 30,
+      "profession": "Four-year college",
+      "residence": "Hokkaido",
+      "life_experience": "私は病気で働けない。\n今は無職だ。\n北海道在住だ。\n野球を見るのが好きだ。\n人と関わるのが好きだ。\n朝に散歩をしている。\n本を読むのが好きだ。\n心理学の勉強をするのが趣味だ。\n肉が好きだ。\n占いの仕事がやりたい。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 5.083333333333333,
+          "Conscientiousness": 4.083333333333333,
+          "Extraversion": 5.0,
+          "Agreeableness": 4.916666666666667,
+          "Neuroticism": 5.75
+        },
+        "kiss18": {
+          "BasicSkill": 4.0,
+          "AdvancedSkill": 3.3333333333333335,
+          "EmotionalManagementSkill": 2.0,
+          "OffenceManagementSkill": 2.6666666666666665,
+          "StressManagementSkill": 2.6666666666666665,
+          "PlanningSkill": 2.6666666666666665
+        },
+        "atq": {
+          "Fear": 4.428571428571429,
+          "Frustration": 4.5,
+          "Sadness": 5.0,
+          "Discomfort": 3.8333333333333335,
+          "ActivationControl": 4.285714285714286,
+          "AttentionalControl": 2.6,
+          "InhibitoryControl": 4.285714285714286,
+          "Sociability": 4.6,
+          "HighIntensityPleasure": 3.4285714285714284,
+          "PositiveAffect": 2.4,
+          "NeutralPerceptualSensitivity": 4.4,
+          "AffectivePerceptualSensitivity": 4.4,
+          "AssociativeSensitivity": 4.8
+        },
+        "sms": {
+          "Extraversion": 2.4,
+          "OtherDirectedness": 3.0833333333333335,
+          "Acting": 3.0
+        },
+        "ios": 5
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "CX",
+        "gender": "Male",
+        "age": 30,
+        "profession": "Four-year college",
+        "residence": "Hokkaido",
+        "life_experience": "私は病気で働けない。\n今は無職だ。\n北海道在住だ。\n野球を見るのが好きだ。\n人と関わるのが好きだ。\n朝に散歩をしている。\n本を読むのが好きだ。\n心理学の勉強をするのが趣味だ。\n肉が好きだ。\n占いの仕事がやりたい。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 5.083333333333333,
+            "Conscientiousness": 4.083333333333333,
+            "Extraversion": 5.0,
+            "Agreeableness": 4.916666666666667,
+            "Neuroticism": 5.75
+          },
+          "kiss18": {
+            "BasicSkill": 4.0,
+            "AdvancedSkill": 3.3333333333333335,
+            "EmotionalManagementSkill": 2.0,
+            "OffenceManagementSkill": 2.6666666666666665,
+            "StressManagementSkill": 2.6666666666666665,
+            "PlanningSkill": 2.6666666666666665
+          },
+          "atq": {
+            "Fear": 4.428571428571429,
+            "Frustration": 4.5,
+            "Sadness": 5.0,
+            "Discomfort": 3.8333333333333335,
+            "ActivationControl": 4.285714285714286,
+            "AttentionalControl": 2.6,
+            "InhibitoryControl": 4.285714285714286,
+            "Sociability": 4.6,
+            "HighIntensityPleasure": 3.4285714285714284,
+            "PositiveAffect": 2.4,
+            "NeutralPerceptualSensitivity": 4.4,
+            "AffectivePerceptualSensitivity": 4.4,
+            "AssociativeSensitivity": 4.8
+          },
+          "sms": {
+            "Extraversion": 2.4,
+            "OtherDirectedness": 3.0833333333333335,
+            "Acting": 3.0
+          },
+          "ios": 5
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "8980ca47c65fc5b0daf262916e773d6b"
+  },
+  {
+    "context": [
+      {
+        "role": "assistant",
+        "content": "よろしくお願いします。趣味や好きなことは何ですか？"
+      },
+      {
+        "role": "user",
+        "content": "お願いします！音楽ですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "音楽ですか！自分も好きです。どういう音楽ですか？"
+      },
+      {
+        "role": "user",
+        "content": "好きなジャンルってことですか？"
+      },
+      {
+        "role": "assistant",
+        "content": "ジャンルですとか歌なのか楽器なのかとか。"
+      },
+      {
+        "role": "user",
+        "content": "何でも聴きますよ。歌ものもインストも、楽器も触るの好きです。"
+      },
+      {
+        "role": "assistant",
+        "content": "オールジャンルなんですね。今は何が一番好きですか？"
+      },
+      {
+        "role": "user",
+        "content": "なんでしょうね。90年代の音楽が好きです。"
+      },
+      {
+        "role": "assistant",
+        "content": "いいですね！懐メロ！自分も好きです！"
+      },
+      {
+        "role": "user",
+        "content": "なにがすきです？"
+      },
+      {
+        "role": "assistant",
+        "content": "今パッと思いついたのは米米CLUBですかね。"
+      },
+      {
+        "role": "user",
+        "content": "いいですね。懐かしい。"
+      },
+      {
+        "role": "assistant",
+        "content": "リアルタイムじゃなくて解散して復帰した頃、コンサートよく行ってました。"
+      },
+      {
+        "role": "user",
+        "content": "それぐらい好きなんですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "一度ノリで行ったら、コンサートの楽しさにハマってしまいました。"
+      },
+      {
+        "role": "user",
+        "content": "生はいいですよね。最近は全く行けてないですね。"
+      },
+      {
+        "role": "assistant",
+        "content": "コロナになってからライブとか中止になったりで行きづらいですよね。"
+      },
+      {
+        "role": "user",
+        "content": "それもありますね。"
+      }
+    ],
+    "next_question": "メンバーが1人お休みになっちゃうと、なんかなって感じします。",
+    "user_profile": {
+      "name": "CX",
+      "gender": "Male",
+      "age": 30,
+      "profession": "Four-year college",
+      "residence": "Hokkaido",
+      "life_experience": "私は病気で働けない。\n今は無職だ。\n北海道在住だ。\n野球を見るのが好きだ。\n人と関わるのが好きだ。\n朝に散歩をしている。\n本を読むのが好きだ。\n心理学の勉強をするのが趣味だ。\n肉が好きだ。\n占いの仕事がやりたい。",
+      "dimensions": {
+        "big_five": {
+          "Openness": 5.083333333333333,
+          "Conscientiousness": 4.083333333333333,
+          "Extraversion": 5.0,
+          "Agreeableness": 4.916666666666667,
+          "Neuroticism": 5.75
+        },
+        "kiss18": {
+          "BasicSkill": 4.0,
+          "AdvancedSkill": 3.3333333333333335,
+          "EmotionalManagementSkill": 2.0,
+          "OffenceManagementSkill": 2.6666666666666665,
+          "StressManagementSkill": 2.6666666666666665,
+          "PlanningSkill": 2.6666666666666665
+        },
+        "atq": {
+          "Fear": 4.428571428571429,
+          "Frustration": 4.5,
+          "Sadness": 5.0,
+          "Discomfort": 3.8333333333333335,
+          "ActivationControl": 4.285714285714286,
+          "AttentionalControl": 2.6,
+          "InhibitoryControl": 4.285714285714286,
+          "Sociability": 4.6,
+          "HighIntensityPleasure": 3.4285714285714284,
+          "PositiveAffect": 2.4,
+          "NeutralPerceptualSensitivity": 4.4,
+          "AffectivePerceptualSensitivity": 4.4,
+          "AssociativeSensitivity": 4.8
+        },
+        "sms": {
+          "Extraversion": 2.4,
+          "OtherDirectedness": 3.0833333333333335,
+          "Acting": 3.0
+        },
+        "ios": 5
+      }
+    },
+    "user_object": {
+      "profile": {
+        "name": "CX",
+        "gender": "Male",
+        "age": 30,
+        "profession": "Four-year college",
+        "residence": "Hokkaido",
+        "life_experience": "私は病気で働けない。\n今は無職だ。\n北海道在住だ。\n野球を見るのが好きだ。\n人と関わるのが好きだ。\n朝に散歩をしている。\n本を読むのが好きだ。\n心理学の勉強をするのが趣味だ。\n肉が好きだ。\n占いの仕事がやりたい。"
+      },
+      "personality": {
+        "structured": {
+          "big_five": {
+            "Openness": 5.083333333333333,
+            "Conscientiousness": 4.083333333333333,
+            "Extraversion": 5.0,
+            "Agreeableness": 4.916666666666667,
+            "Neuroticism": 5.75
+          },
+          "kiss18": {
+            "BasicSkill": 4.0,
+            "AdvancedSkill": 3.3333333333333335,
+            "EmotionalManagementSkill": 2.0,
+            "OffenceManagementSkill": 2.6666666666666665,
+            "StressManagementSkill": 2.6666666666666665,
+            "PlanningSkill": 2.6666666666666665
+          },
+          "atq": {
+            "Fear": 4.428571428571429,
+            "Frustration": 4.5,
+            "Sadness": 5.0,
+            "Discomfort": 3.8333333333333335,
+            "ActivationControl": 4.285714285714286,
+            "AttentionalControl": 2.6,
+            "InhibitoryControl": 4.285714285714286,
+            "Sociability": 4.6,
+            "HighIntensityPleasure": 3.4285714285714284,
+            "PositiveAffect": 2.4,
+            "NeutralPerceptualSensitivity": 4.4,
+            "AffectivePerceptualSensitivity": 4.4,
+            "AssociativeSensitivity": 4.8
+          },
+          "sms": {
+            "Extraversion": 2.4,
+            "OtherDirectedness": 3.0833333333333335,
+            "Acting": 3.0
+          },
+          "ios": 5
+        },
+        "unstructured": null
+      }
+    },
+    "task_description": "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式",
+    "user_hash": "8980ca47c65fc5b0daf262916e773d6b"
+  }
+]

@@ -285,6 +285,42 @@ def main():
         print(f"验证集: {len(val_samples)} 个样本")
         print(f"每个GPU实际处理约 {len(train_samples) // world_size} 个训练样本")
     
+    # 保存处理后的数据到当前目录
+    if is_main_process:
+        current_dir = os.getcwd()
+        train_data_path = os.path.join(current_dir, "train_samples.json")
+        val_data_path = os.path.join(current_dir, "val_samples.json")
+        all_data_path = os.path.join(current_dir, "all_samples.json")
+        
+        print(f"\n保存处理后的数据到当前目录: {current_dir}")
+        
+        # 保存训练集
+        try:
+            with open(train_data_path, 'w', encoding='utf-8') as f:
+                json.dump(train_samples, f, indent=2, ensure_ascii=False)
+            print(f"✓ 训练集已保存: {train_data_path} ({len(train_samples)} 个样本)")
+        except Exception as e:
+            print(f"⚠ 保存训练集失败: {e}")
+        
+        # 保存验证集
+        if val_samples:
+            try:
+                with open(val_data_path, 'w', encoding='utf-8') as f:
+                    json.dump(val_samples, f, indent=2, ensure_ascii=False)
+                print(f"✓ 验证集已保存: {val_data_path} ({len(val_samples)} 个样本)")
+            except Exception as e:
+                print(f"⚠ 保存验证集失败: {e}")
+        
+        # 保存所有样本（可选，用于调试）
+        try:
+            with open(all_data_path, 'w', encoding='utf-8') as f:
+                json.dump(all_samples, f, indent=2, ensure_ascii=False)
+            print(f"✓ 所有样本已保存: {all_data_path} ({len(all_samples)} 个样本)")
+        except Exception as e:
+            print(f"⚠ 保存所有样本失败: {e}")
+        
+        print()
+    
     # 获取模型配置
     model_config = config['model']
     
