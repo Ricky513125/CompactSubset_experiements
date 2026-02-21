@@ -219,19 +219,7 @@ run_training() {
 }
 
 # ===== 依次运行 8 个训练任务 =====
-# 任务 5: MovieLens
-run_training "MovieLens" 29520 \
-    train_distributed_MovieLens.py \
-    --config config_MovieLens.json \
-    --deepspeed ds_config_zero2.json \
-    --ablation_config history_only \
-    --output_dir outputs/MovieLens_8B_history_random_targets_seed42 \
-    --max_epochs 50 \
-    --val_ratio 0.1 \
-    --history_strategy random_targets \
-    --wandb_project Qwen3_8B-MovieLens \
-    --wandb_run_name history_random_targets_8B_sampled_seed42 \
-    --prompt_style simple
+
 
 
 # 任务 6: PERSONA_Bench
@@ -275,6 +263,19 @@ run_training "REALTALK" 29535 \
     --wandb_run_name context_8B_sampled_seed42 \
     --prompt_style simple
 
+# 任务 5: MovieLens
+run_training "MovieLens" 29520 \
+    train_distributed_MovieLens.py \
+    --config config_MovieLens.json \
+    --deepspeed ds_config_zero2.json \
+    --ablation_config history_only \
+    --output_dir outputs/MovieLens_8B_history_random_targets_seed42 \
+    --max_epochs 50 \
+    --val_ratio 0.1 \
+    --history_strategy random_targets \
+    --wandb_project Qwen3_8B-MovieLens \
+    --wandb_run_name history_random_targets_8B_sampled_seed42 \
+    --prompt_style simple
 
 echo "=========================================="
 echo "===== 所有训练任务完成 ====="

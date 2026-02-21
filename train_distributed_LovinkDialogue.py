@@ -191,9 +191,10 @@ def extract_training_samples(train_data: List[Dict[str, Any]], debug: bool = Fal
                                     'user_hash': user_hash
                                 })
     # --- 新增：保存样本逻辑 ---
-    # 定义保存路径（自动处理 ~ 符号）
-    save_dir = os.path.expanduser("~/parallel-post-train/ablation/sample_results")
-    os.makedirs(save_dir, exist_ok=True) # 如果目录不存在则创建
+    # 保存到当前项目目录下的 data 文件夹
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    save_dir = os.path.join(current_dir, "data", "extracted_samples")
+    os.makedirs(save_dir, exist_ok=True)  # 如果目录不存在则创建
     
     # 建议保存为 .jsonl 格式，方便大规模数据处理
     save_path = os.path.join(save_dir, "extracted_samples.jsonl")

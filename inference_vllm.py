@@ -278,7 +278,144 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
     text = text.replace('\u205F', ' ')  # medium mathematical space -> space
     text = text.replace('\u3000', ' ')  # ideographic space -> space
     
-    # 1.5. 移除开头的标点符号和空白字符
+    # 1.5. 修复URL中的空格
+    # 模型有时会在URL中错误地插入空格，如 "https://imgur. com/xxx" 或 "https://en. m. wikipedia. org/xxx"
+    # 需要移除URL中的空格，但保留URL边界外的空格
+    def fix_url_in_text(text):
+        # 匹配 https:// 或 http:// 开头的URL
+        # 策略：找到所有以 https:// 或 http:// 开头的URL，移除其中的空格
+        # URL的有效字符：字母、数字、-、.、/、?、#、&、=、%、:、_、~、@、[、]、!、+、*、$、,
+        # URL结束于：空格、换行、<、>、"、'、)、]、}、,、.（如果后面跟空格或换行）
+        # 改进：使用更智能的匹配，识别URL的常见模式
+        # 匹配模式：https?:// 后跟URL字符（包括可能的空格），直到遇到明显的结束符
+        # 注意：URL中可能包含空格（错误生成的），需要移除这些空格
+        # 改进：使用更保守的匹配，但也要处理URL中间有空格但后面直接跟文本的情况
+        # 策略：匹配 https?:// 后跟URL字符（包括可能的空格），但限制最大长度（避免匹配过长）
+        # 同时，识别URL的常见结束模式（如空格、换行、引号、括号、句号后跟空格等）
+        pattern = r'(https?://[^\s\n<>"\'\)\]\}]+(?:\s+[^\s\n<>"\'\)\]\}]+)*)'
+        def replace_url(m):
+            url = m.group(1)
+            match_end = m.end()
+            
+            # 检查URL中是否有查询参数分隔符（? 或 #）
+            # 如果URL中有 ? 或 #，且 ? 或 # 后面有空格，然后是大写字母，URL可能在 ? 或 # 之前就结束了
+            if '?' in url or '#' in url:
+                query_pos = max(url.rfind('?'), url.rfind('#'))
+                if query_pos > 0:
+                    # 检查 ? 或 # 后面是否有空格，然后是大写字母（表示新单词开始）
+                    query_part = url[query_pos+1:]
+                    # 移除查询参数部分中的空格，检查是否以大写字母开头
+                    query_part_no_space = query_part.replace(' ', '')
+                    if query_part_no_space and query_part_no_space[0].isupper():
+                        # 查询参数部分以大写字母开头，可能是误匹配了后面的文本
+                        # 只处理到查询参数开始的位置
+                        url_base = url[:query_pos+1]
+                        fixed_url = url_base.replace(' ', '')
+                        return fixed_url
+                    # 如果查询参数部分很长（>30字符），也可能是误匹配
+                    if len(query_part) > 30:
+                        # 检查查询参数部分是否包含明显的单词边界（空格后跟大写字母）
+                        if ' ' in query_part:
+                            # 找到第一个空格后跟大写字母的位置
+                            space_pos = query_part.find(' ')
+                            if space_pos > 0 and space_pos + 1 < len(query_part):
+                                if query_part[space_pos + 1].isupper():
+                                    # 找到单词边界，URL在 ? 或 # 之前就结束了
+                                    url_base = url[:query_pos+1]
+                                    fixed_url = url_base.replace(' ', '')
+                                    return fixed_url
+            
+            # 检查URL后面是否有明确的结束符
+            if match_end < len(text):
+                next_char = text[match_end]
+                # 如果下一个字符是空格、换行、引号、括号等，说明URL结束了
+                if next_char in ' \n\t<>"\'()[]{}':
+                    # URL结束，移除其中的空格
+                    fixed_url = url.replace(' ', '')
+                    return fixed_url
+                # 如果下一个字符是句号，检查句号后是否有空格或换行
+                elif next_char == '.':
+                    if match_end + 1 < len(text) and text[match_end + 1] in ' \n\t':
+                        # 句号后跟空格，说明URL结束了
+                        fixed_url = url.replace(' ', '')
+                        return fixed_url
+                    # 句号后没有空格，可能是URL的一部分（如 example.com）
+                    # 继续匹配，但限制最大长度（避免匹配过长）
+                    if len(url) > 200:  # URL太长，可能匹配了后面的文本
+                        # 尝试找到URL的实际结束位置（第一个明显的结束符之前）
+                        # 这里先处理当前匹配的部分
+                        fixed_url = url.replace(' ', '')
+                        return fixed_url
+                # 如果下一个字符不是明显的结束符，需要更智能地识别URL的结束
+                # 检查URL中是否有查询参数分隔符（? 或 #）
+                # 如果URL中有 ? 或 #，且后面直接跟文本（没有空格），URL可能在 ? 或 # 之前就结束了
+                # 或者需要更保守的处理：只处理到第一个明显的URL结束位置
+                if '?' in url or '#' in url:
+                    # URL中有查询参数或锚点
+                    # 检查最后一个 ? 或 # 后的内容
+                    query_pos = max(url.rfind('?'), url.rfind('#'))
+                    if query_pos > 0:
+                        query_part = url[query_pos+1:]  # ? 或 # 之后的部分
+                        # 检查查询参数部分是否有明显的结束模式
+                        # 如果查询参数部分很长（>30字符），可能是误匹配了后面的文本
+                        # 或者如果查询参数部分以大写字母开头（表示新单词），可能URL已经结束了
+                        if len(query_part) > 30:
+                            # 检查查询参数部分是否以大写字母开头（表示新单词开始）
+                            if query_part and query_part[0].isupper():
+                                # 查询参数部分以大写字母开头，可能是误匹配了后面的文本
+                                # 只处理到查询参数开始的位置
+                                url_base = url[:query_pos+1]
+                                fixed_url = url_base.replace(' ', '')
+                                return fixed_url
+                            # 如果查询参数部分很长，也可能是误匹配
+                            # 尝试找到合理的截断点（如最后一个 & 或 = 之前）
+                            last_amp = query_part.rfind('&')
+                            last_eq = query_part.rfind('=')
+                            truncate_pos = max(last_amp, last_eq)
+                            if truncate_pos > 10:  # 如果找到了合理的截断点
+                                url_truncated = url[:query_pos+1+truncate_pos+1]
+                                fixed_url = url_truncated.replace(' ', '')
+                                return fixed_url
+                            # 否则，只处理到查询参数开始的位置
+                            url_base = url[:query_pos+1]
+                            fixed_url = url_base.replace(' ', '')
+                            return fixed_url
+                
+                # 检查URL长度和域名模式
+                if len(url) > 100:  # URL已经很长了，可能是误匹配
+                    # 检查URL中是否有常见的域名后缀
+                    domain_patterns = [r'\.com', r'\.org', r'\.net', r'\.edu', r'\.gov', r'\.io', r'\.co', r'\.uk', r'\.youtube']
+                    has_domain = any(re.search(pattern, url, re.IGNORECASE) for pattern in domain_patterns)
+                    if has_domain:
+                        # 有域名模式，尝试找到最后一个域名后的合理结束位置
+                        # 如果URL太长，可能误匹配了后面的文本
+                        # 这里保守处理：只移除空格，不改变URL结构
+                        # 但如果URL超过200字符，可能是误匹配，需要截断
+                        if len(url) > 200:
+                            # 尝试找到合理的截断点（如最后一个 / 或 ? 之前）
+                            last_slash = url.rfind('/')
+                            last_query = url.rfind('?')
+                            truncate_pos = max(last_slash, last_query)
+                            if truncate_pos > 50:  # 如果找到了合理的截断点
+                                url_truncated = url[:truncate_pos+1]
+                                fixed_url = url_truncated.replace(' ', '')
+                                return fixed_url
+                        # 否则，简单地移除空格
+                        fixed_url = url.replace(' ', '')
+                        return fixed_url
+            else:
+                # 文本结束，URL也结束了
+                fixed_url = url.replace(' ', '')
+                return fixed_url
+            
+            # 如果无法确定，返回原始文本（不处理）
+            return m.group(0)
+        
+        return re.sub(pattern, replace_url, text)
+    
+    text = fix_url_in_text(text)
+    
+    # 1.6. 移除开头的标点符号和空白字符
     # 例如：". he. what about..." -> "he. what about..."
     # 注意：此时特殊Unicode字符已经规范化为普通字符，所以只需要处理普通字符
     text = text.lstrip(r'.!?,\s\-')
@@ -519,6 +656,9 @@ def build_inference_prompt(
         elif dataset_name == "LovinkDialogue":
             # LovinkDialogue: 使用与训练时一致的任务描述
             task_text = "基于用户在 Lovink 对话中的历史数据，模拟该用户的对话行为模式"
+        elif dataset_name in ["PERSONA_Bench", "PERSONA-Bench"]:
+            # PERSONA_Bench: 使用与训练时一致的任务描述（英文）
+            task_text = "Given the historical dialogue of a user on Reddit, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce."
         else:
             task_text = f"基于用户在 {dataset_name} 中的历史数据，模拟该用户的对话行为模式，并预测用户的下一条回复。"
         
@@ -609,6 +749,9 @@ def build_inference_prompt(
         elif dataset_name == "LovinkDialogue":
             # LovinkDialogue: 使用与训练时一致的生成提示
             parts.append("预测用户的下一条消息:")
+        elif dataset_name in ["PERSONA_Bench", "PERSONA-Bench"]:
+            # PERSONA_Bench: 使用与训练时一致的生成提示（英文）
+            parts.append("Predict the user's response to the comment:")
         else:
             parts.append("根据以上信息，预测用户的下一条回复:")
     
@@ -1163,6 +1306,8 @@ def main():
             'Chameleons': '/mnt/parallel/GIDigitalTwinBench/RealSelf/Chameleons',
             'DMSC': '/mnt/parallel/GIDigitalTwinBench/RealSelf/DMSC',
             'MovieReview': '/mnt/parallel/GIDigitalTwinBench/RealSelf/DMSC',  # MovieReview 使用 DMSC 数据
+            'PERSONA_Bench': '/mnt/parallel/GIDigitalTwinBench/RealSelf/PERSONA-Bench',  # 目录名使用连字符
+            'PERSONA-Bench': '/mnt/parallel/GIDigitalTwinBench/RealSelf/PERSONA-Bench',  # 同时支持连字符格式
             'LovinkDialogue': '/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue',
             'LovinkQuestionnaire': '/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkQuestionnaire',
             'RealPersonaChat': '/mnt/parallel/GIDigitalTwinBench/IdealSelf/RealPersonaChat',

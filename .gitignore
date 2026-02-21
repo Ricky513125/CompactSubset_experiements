@@ -6,3 +6,6 @@ wandb/
 logs/
 history_logs/
 history_cache/
+
+# Extracted training samples
+data/extracted_samples/
