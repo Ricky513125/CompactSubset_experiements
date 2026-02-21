@@ -706,6 +706,8 @@ def main():
     class CustomTrainer(Trainer):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
+            # 保存 tokenizer 引用（用于损失权重计算）
+            self.tokenizer = tokenizer
             # 创建训练进度日志文件
             if is_main_process:
                 self.progress_log_file = os.path.join(output_dir, "training_logs", "training_progress.txt")
@@ -825,7 +827,7 @@ def main():
                     )
                     logits = torch.clamp(logits, min=-50.0, max=50.0)
             
-            # 计算损失
+            # 计算损失（对 [ANSWER] 和 [/ANSWER] token 增加权重）
             if hasattr(outputs, 'loss') and outputs.loss is not None:
                 loss = outputs.loss
             elif labels is not None:
@@ -836,14 +838,56 @@ def main():
                         print(f"警告: [GPU {rank}] Step {self.state.global_step} 没有有效的labels")
                     loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
                 else:
-                    loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='mean')
                     shift_logits = logits[..., :-1, :].contiguous()
                     shift_labels = labels[..., 1:].contiguous()
                     
-                    loss = loss_fct(
+                    # 创建损失权重：对 [ANSWER] 和 [/ANSWER] token 增加权重
+                    # 获取 tokenizer 中的 [ANSWER] 和 [/ANSWER] token IDs
+                    answer_start_token_id = None
+                    answer_end_token_id = None
+                    
+                    try:
+                        # 尝试获取 [ANSWER] 和 [/ANSWER] 的 token ID
+                        if hasattr(self.tokenizer, 'encode'):
+                            # 编码单个 token（如果 tokenizer 支持）
+                            answer_start_tokens = self.tokenizer.encode("[ANSWER]", add_special_tokens=False)
+                            answer_end_tokens = self.tokenizer.encode("[/ANSWER]", add_special_tokens=False)
+                            
+                            # 通常这些标签会被编码为多个 token，取第一个
+                            if answer_start_tokens:
+                                answer_start_token_id = answer_start_tokens[0]
+                            if answer_end_tokens:
+                                answer_end_token_id = answer_end_tokens[0]
+                    except:
+                        pass
+                    
+                    # 创建权重张量（默认权重为 1.0）
+                    batch_size, seq_len = shift_labels.shape
+                    loss_weights = torch.ones_like(shift_labels, dtype=torch.float32)
+                    
+                    # 对 [ANSWER] 和 [/ANSWER] token 增加权重（权重设为 3.0）
+                    if answer_start_token_id is not None:
+                        loss_weights[shift_labels == answer_start_token_id] = 3.0
+                    if answer_end_token_id is not None:
+                        loss_weights[shift_labels == answer_end_token_id] = 3.0
+                    
+                    # 使用加权损失
+                    loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
+                    per_token_loss = loss_fct(
                         shift_logits.view(-1, shift_logits.size(-1)),
                         shift_labels.view(-1)
                     )
+                    
+                    # 应用权重并计算平均损失
+                    per_token_loss = per_token_loss.view(batch_size, seq_len)
+                    valid_mask = (shift_labels != -100)
+                    weighted_loss = (per_token_loss * loss_weights * valid_mask.float()).sum()
+                    valid_count = (valid_mask.float() * loss_weights).sum()
+                    
+                    if valid_count > 0:
+                        loss = weighted_loss / valid_count
+                    else:
+                        loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
             else:
                 loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
             

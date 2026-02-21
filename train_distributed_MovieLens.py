@@ -403,6 +403,14 @@ def main():
     parser.add_argument('--sample_seed', type=int, default=42,
                        help='采样随机种子（默认：42，保证可复现）')
     
+    # 新增：分批训练参数
+    parser.add_argument('--data_batch_size', type=int, default=None,
+                       help='每个批次的数据量（用于分批训练，避免一次性加载所有数据）')
+    parser.add_argument('--data_batch_index', type=int, default=None,
+                       help='当前要训练的批次索引（从0开始，如果指定则只训练该批次）')
+    parser.add_argument('--load_from_saved', action='store_true',
+                       help='从已保存的JSON文件加载数据（避免重复处理原始数据）')
+    
     args = parser.parse_args()
     
     # 初始化分布式环境
@@ -500,91 +508,155 @@ def main():
         print("=" * 80)
     
     # 加载训练数据
-    if is_main_process:
-        print("加载训练数据...")
-    train_path = config['data']['train_path']
-    train_data = load_train_data(train_path)
+    current_dir = os.getcwd()
+    train_data_path = os.path.join(current_dir, "train_samples.json")
+    all_data_path = os.path.join(current_dir, "all_samples.json")
     
-    if not train_data:
-        print(f"错误: 无法加载训练数据")
-        cleanup_distributed()
-        return
-    
-    # 提取训练样本 - 使用 MovieLens 专用提取函数
-    all_samples = extract_movielens_samples(train_data, debug=is_main_process)
-    if is_main_process:
-        print(f"提取了 {len(all_samples)} 个训练样本")
-    
-    # 新增：处理采样和历史策略
-    if args.history_strategy == 'random_targets' and args.max_samples_per_user is not None:
-        # 使用新的 random_targets 策略：每个用户随机选N个作为预测目标，其余都作历史
+    # 检查是否从已保存的文件加载
+    loaded_from_saved = False
+    if args.load_from_saved and os.path.exists(all_data_path):
         if is_main_process:
-            print(f"\n使用 random_targets 策略：")
-            print(f"  每个用户随机选择 {args.max_samples_per_user} 个评分作为预测目标")
-            print(f"  该用户的其余所有评分都作为历史")
-        all_samples = sample_prediction_targets_per_user(
-            all_samples,
-            max_targets_per_user=args.max_samples_per_user,
-            random_seed=args.sample_seed,
-            debug=is_main_process
-        )
-        # random_targets 模式下已经添加了历史，不需要再次添加
-        use_history = use_history  # 保持原值
-    elif args.max_samples_per_user is not None:
-        # 传统采样：直接限制每个用户的样本数
+            print(f"从已保存的文件加载数据: {all_data_path}")
+        try:
+            with open(all_data_path, 'r', encoding='utf-8') as f:
+                all_samples = json.load(f)
+            if is_main_process:
+                print(f"✓ 成功加载 {len(all_samples)} 个样本（跳过原始数据处理）")
+            loaded_from_saved = True
+        except Exception as e:
+            if is_main_process:
+                print(f"⚠ 加载保存的文件失败: {e}，将重新处理原始数据")
+            loaded_from_saved = False
+    
+    # 如果没有从保存的文件加载，则处理原始数据
+    if not loaded_from_saved:
         if is_main_process:
-            print(f"\n对每个用户进行采样（每用户最多 {args.max_samples_per_user} 个样本）...")
-        all_samples = sample_per_user(
-            all_samples,
-            max_samples_per_user=args.max_samples_per_user,
-            random_seed=args.sample_seed
-        )
+            print("加载训练数据...")
+        train_path = config['data']['train_path']
+        train_data = load_train_data(train_path)
         
-        # 传统模式下需要单独添加历史信息
-        if use_history:
+        if not train_data:
+            print(f"错误: 无法加载训练数据")
+            cleanup_distributed()
+            return
+        
+        # 提取训练样本 - 使用 MovieLens 专用提取函数
+        all_samples = extract_movielens_samples(train_data, debug=is_main_process)
+        if is_main_process:
+            print(f"提取了 {len(all_samples)} 个训练样本")
+        
+        # 新增：处理采样和历史策略（只在处理原始数据时执行）
+        if args.history_strategy == 'random_targets' and args.max_samples_per_user is not None:
+            # 使用新的 random_targets 策略：每个用户随机选N个作为预测目标，其余都作历史
             if is_main_process:
-                print(f"添加历史信息（策略: {args.history_strategy}）...")
-                if args.history_strategy == 'fixed_ratio' or args.history_strategy == 'random':
-                    print(f"  历史比例: {args.history_ratio}")
-                elif args.history_strategy == 'fixed_count':
-                    print(f"  固定历史数量: {args.fixed_history_count}")
-            
-            all_samples = add_history_to_samples_movielens(
+                print(f"\n使用 random_targets 策略：")
+                print(f"  每个用户随机选择 {args.max_samples_per_user} 个评分作为预测目标")
+                print(f"  该用户的其余所有评分都作为历史")
+            all_samples = sample_prediction_targets_per_user(
                 all_samples,
-                history_strategy=args.history_strategy,
-                history_ratio=args.history_ratio,
-                fixed_history_count=args.fixed_history_count
+                max_targets_per_user=args.max_samples_per_user,
+                random_seed=args.sample_seed,
+                debug=is_main_process
             )
+            # random_targets 模式下已经添加了历史，不需要再次添加
+            use_history = use_history  # 保持原值
+        elif args.max_samples_per_user is not None:
+            # 传统采样：直接限制每个用户的样本数
+            if is_main_process:
+                print(f"\n对每个用户进行采样（每用户最多 {args.max_samples_per_user} 个样本）...")
+            all_samples = sample_per_user(
+                all_samples,
+                max_samples_per_user=args.max_samples_per_user,
+                random_seed=args.sample_seed
+            )
+            
+            # 传统模式下需要单独添加历史信息
+            if use_history:
+                if is_main_process:
+                    print(f"添加历史信息（策略: {args.history_strategy}）...")
+                    if args.history_strategy == 'fixed_ratio' or args.history_strategy == 'random':
+                        print(f"  历史比例: {args.history_ratio}")
+                    elif args.history_strategy == 'fixed_count':
+                        print(f"  固定历史数量: {args.fixed_history_count}")
+                
+                all_samples = add_history_to_samples_movielens(
+                    all_samples,
+                    history_strategy=args.history_strategy,
+                    history_ratio=args.history_ratio,
+                    fixed_history_count=args.fixed_history_count
+                )
+        else:
+            # 不采样，直接添加历史信息
+            if use_history:
+                if is_main_process:
+                    print(f"添加历史信息（策略: {args.history_strategy}）...")
+                    if args.history_strategy == 'fixed_ratio' or args.history_strategy == 'random':
+                        print(f"  历史比例: {args.history_ratio}")
+                    elif args.history_strategy == 'fixed_count':
+                        print(f"  固定历史数量: {args.fixed_history_count}")
+                
+                all_samples = add_history_to_samples_movielens(
+                    all_samples,
+                    history_strategy=args.history_strategy,
+                    history_ratio=args.history_ratio,
+                    fixed_history_count=args.fixed_history_count
+                )
     else:
-        # 不采样，直接添加历史信息
-        if use_history:
+        # 从保存的文件加载，数据已经处理过，跳过采样和历史处理
+        if is_main_process:
+            print("✓ 使用已处理的数据，跳过采样和历史处理步骤")
+    
+    # 分批处理：如果指定了批次大小和索引，只使用该批次的数据
+    total_batches = None
+    if args.data_batch_size is not None and args.data_batch_index is not None:
+        if is_main_process:
+            print(f"\n分批训练模式:")
+            print(f"  批次大小: {args.data_batch_size}")
+            print(f"  当前批次索引: {args.data_batch_index}")
+            print(f"  总样本数: {len(all_samples)}")
+        
+        # 计算批次范围
+        start_idx = args.data_batch_index * args.data_batch_size
+        end_idx = min(start_idx + args.data_batch_size, len(all_samples))
+        total_batches = (len(all_samples) + args.data_batch_size - 1) // args.data_batch_size
+        
+        if start_idx >= len(all_samples):
             if is_main_process:
-                print(f"添加历史信息（策略: {args.history_strategy}）...")
-                if args.history_strategy == 'fixed_ratio' or args.history_strategy == 'random':
-                    print(f"  历史比例: {args.history_ratio}")
-                elif args.history_strategy == 'fixed_count':
-                    print(f"  固定历史数量: {args.fixed_history_count}")
-            
-            all_samples = add_history_to_samples_movielens(
-                all_samples,
-                history_strategy=args.history_strategy,
-                history_ratio=args.history_ratio,
-                fixed_history_count=args.fixed_history_count
-            )
+                print(f"错误: 批次索引 {args.data_batch_index} 超出范围（总共 {total_batches} 个批次）")
+            cleanup_distributed()
+            return
+        
+        # 只使用当前批次的数据
+        batch_samples = all_samples[start_idx:end_idx]
+        if is_main_process:
+            print(f"  批次范围: [{start_idx}, {end_idx})")
+            print(f"  当前批次样本数: {len(batch_samples)}")
+            print(f"  总批次数: {total_batches}")
+        
+        all_samples = batch_samples
     
     # 划分训练集和验证集
     train_samples, val_samples = split_train_val(all_samples, args.val_ratio)
     if is_main_process:
-        print(f"训练集: {len(train_samples)} 个样本")
+        print(f"\n训练集: {len(train_samples)} 个样本")
         print(f"验证集: {len(val_samples)} 个样本")
+        if args.data_batch_size is not None and args.data_batch_index is not None:
+            print(f"（这是第 {args.data_batch_index + 1}/{total_batches} 批次的数据）")
         print(f"每个GPU实际处理约 {len(train_samples) // world_size} 个训练样本")
     
     # 保存处理后的数据到当前目录
     if is_main_process:
         current_dir = os.getcwd()
-        train_data_path = os.path.join(current_dir, "train_samples.json")
-        val_data_path = os.path.join(current_dir, "val_samples.json")
-        all_data_path = os.path.join(current_dir, "all_samples.json")
+        
+        # 如果是分批模式，使用批次特定的文件名
+        if args.data_batch_size is not None and args.data_batch_index is not None:
+            train_data_path = os.path.join(current_dir, f"train_samples_batch{args.data_batch_index}.json")
+            val_data_path = os.path.join(current_dir, f"val_samples_batch{args.data_batch_index}.json")
+            all_data_path = os.path.join(current_dir, "all_samples.json")  # 只在第一次保存全部数据
+        else:
+            train_data_path = os.path.join(current_dir, "train_samples.json")
+            val_data_path = os.path.join(current_dir, "val_samples.json")
+            all_data_path = os.path.join(current_dir, "all_samples.json")
         
         print(f"\n保存处理后的数据到当前目录: {current_dir}")
         
@@ -605,13 +677,14 @@ def main():
             except Exception as e:
                 print(f"⚠ 保存验证集失败: {e}")
         
-        # 保存所有样本（可选，用于调试）
-        try:
-            with open(all_data_path, 'w', encoding='utf-8') as f:
-                json.dump(all_samples, f, indent=2, ensure_ascii=False)
-            print(f"✓ 所有样本已保存: {all_data_path} ({len(all_samples)} 个样本)")
-        except Exception as e:
-            print(f"⚠ 保存所有样本失败: {e}")
+        # 保存所有样本（只在非分批模式或第一次运行时保存）
+        if args.data_batch_size is None or args.data_batch_index == 0:
+            try:
+                with open(all_data_path, 'w', encoding='utf-8') as f:
+                    json.dump(all_samples, f, indent=2, ensure_ascii=False)
+                print(f"✓ 所有样本已保存: {all_data_path} ({len(all_samples)} 个样本)")
+            except Exception as e:
+                print(f"⚠ 保存所有样本失败: {e}")
         
         print()
     
@@ -621,11 +694,19 @@ def main():
     # 设置输出目录
     if args.output_dir:
         output_dir = args.output_dir
+        # 如果是分批训练，在输出目录中添加批次信息
+        if args.data_batch_size is not None and args.data_batch_index is not None:
+            output_dir = f"{output_dir}_batch{args.data_batch_index}"
     else:
         checkpoint_dir = model_config['checkpoint_dir']
         dataset_name = os.path.basename(os.path.dirname(train_path))
         flash_suffix = "flashattn2" if use_flash_attn else "standard"
-        output_dir = os.path.join(checkpoint_dir, f"{dataset_name}_ablation_{config_name}_{flash_suffix}_dynamic_distributed")
+        base_output_dir = os.path.join(checkpoint_dir, f"{dataset_name}_ablation_{config_name}_{flash_suffix}_dynamic_distributed")
+        # 如果是分批训练，在输出目录中添加批次信息
+        if args.data_batch_size is not None and args.data_batch_index is not None:
+            output_dir = f"{base_output_dir}_batch{args.data_batch_index}"
+        else:
+            output_dir = base_output_dir
     
     # 只在主进程创建目录和日志文件
     training_log_path = None

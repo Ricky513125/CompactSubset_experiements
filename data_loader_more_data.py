@@ -877,8 +877,8 @@ def build_simple_training_prompt(
     system_content = "\n\n".join(system_parts)
     messages.append({"role": "system", "content": system_content})
     
-    # target_answer 就是 next_question
-    target_answer = next_question
+    # target_answer 用 [ANSWER] 和 [/ANSWER] 包裹 next_question
+    target_answer = f"[ANSWER]\n{next_question}\n[/ANSWER]"
     
     return messages, target_answer
 

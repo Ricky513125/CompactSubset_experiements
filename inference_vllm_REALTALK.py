@@ -1,5 +1,5 @@
 """
-使用 vLLM 进行高性能推理
+使用 vLLM 进行高性能推理 - REALTALK 专用版本
 
 vLLM 优势:
 - 速度提升 2-24x (相比 HuggingFace Transformers)
@@ -11,28 +11,14 @@ vLLM 优势:
 pip install vllm
 
 使用方法:
-# 单GPU
-python inference_vllm.py \
-    --checkpoint_dir outputs/Chameleons_8B_context_sampled_seed42 \
-    --dataset Chameleons \
-    --ablation_config context_only \
+python inference_vllm_REALTALK.py \
+    --checkpoint_dir outputs/REALTALK_8B_context_sampled_seed42 \
+    --ablation_config profile_and_context \
     --num_samples 5 \
-    --output_dir outputs/leaderboards/Chameleons_8B_context_vllm
-
-# 多GPU (Tensor Parallelism)
-python inference_vllm.py \
-    --checkpoint_dir outputs/Chameleons_8B_context_sampled_seed42 \
-    --dataset Chameleons \a
-    --ablation_config context_only \
-    --num_samples 5 \
-    --output_dir outputs/leaderboards/Chameleons_8B_context_vllm \
-    --tensor_parallel_size 4 \
-    --gpu_memory_utilization 0.9
-
-性能对比:
-- HuggingFace Transformers (8 GPU, batch_size=1): ~100 samples/min
-- vLLM (1 GPU, batch_size=auto): ~500-1000 samples/min
-- vLLM (4 GPU TP, batch_size=auto): ~1500-2000 samples/min
+    --output_dir outputs/leaderboards/REALTALK_vllm_8B \
+    --tensor_parallel_size 8 \
+    --gpu_memory_utilization 0.9 \
+    --max_model_len 16384
 """
 
 import json
@@ -67,83 +53,15 @@ from inference import (
 from data_loader_more_data import load_train_data
 import re
 
-# 日本语规范化（如果可用）
-try:
-    from japanese_text_normalizer import normalize_japanese_text
-except ImportError:
-    def normalize_japanese_text(text):
-        return text
-
-
-def is_too_similar(new_text: str, existing_texts: List[str], similarity_threshold: float = 0.85) -> bool:
-    """
-    检查新文本是否与已有文本过于相似
-    
-    Args:
-        new_text: 新生成的文本
-        existing_texts: 已有的文本列表
-        similarity_threshold: 相似度阈值（默认0.85）
-    
-    Returns:
-        如果过于相似返回True，否则返回False
-    """
-    if not new_text or not existing_texts:
-        return False
-    
-    new_normalized = new_text.strip().lower()
-    if not new_normalized:
-        return True  # 空文本视为重复
-    
-    for existing in existing_texts:
-        existing_normalized = existing.strip().lower()
-        
-        # 完全相同
-        if new_normalized == existing_normalized:
-            return True
-        
-        # 计算相似度（基于字符级别的Jaccard相似度）
-        set_new = set(new_normalized)
-        set_existing = set(existing_normalized)
-        intersection = len(set_new & set_existing)
-        union = len(set_new | set_existing)
-        
-        if union > 0:
-            similarity = intersection / union
-            # 相似度超过阈值认为重复
-            if similarity > similarity_threshold:
-                return True
-        
-        # 检查是否一个是另一个的前缀（长度差不超过5个字符）
-        if len(new_normalized) > 5 and len(existing_normalized) > 5:
-            if new_normalized.startswith(existing_normalized[:10]) or existing_normalized.startswith(new_normalized[:10]):
-                if abs(len(new_normalized) - len(existing_normalized)) < 5:
-                    return True
-    
-    return False
-
 
 def is_garbled_text(text: str) -> bool:
     """
-    检测文本是否为乱码
-    
-    乱码特征：
-    1. 大量数字和特殊字符（如 "031516-726626492020..."）
-    2. 数字占比过高（>50%）
-    3. 连续数字过长（>20个连续数字）
-    4. 几乎没有字母或常见标点
-    
-    Args:
-        text: 待检测的文本
-    
-    Returns:
-        如果是乱码返回True，否则返回False
+    检测文本是否为乱码（针对英文对话）
     """
     if not text or len(text.strip()) < 3:
         return False
     
     text_clean = text.strip()
-    
-    # 统计字符类型
     digit_count = sum(1 for c in text_clean if c.isdigit())
     letter_count = sum(1 for c in text_clean if c.isalpha())
     total_chars = len(text_clean)
@@ -151,42 +69,37 @@ def is_garbled_text(text: str) -> bool:
     if total_chars == 0:
         return False
     
-    # 1. 数字占比过高（>60%）
+    # 数字占比过高（>60%）
     digit_ratio = digit_count / total_chars
     if digit_ratio > 0.6:
         return True
     
-    # 2. 连续数字过长（>20个连续数字）
-    import re
+    # 连续数字过长（>20个连续数字）
     long_digit_sequences = re.findall(r'\d{20,}', text_clean)
     if long_digit_sequences:
         return True
     
-    # 3. 几乎没有字母（字母占比<10%且总长度>10）
+    # 几乎没有字母（字母占比<10%且总长度>10）
     if total_chars > 10:
         letter_ratio = letter_count / total_chars
         if letter_ratio < 0.1 and digit_ratio > 0.3:
             return True
-    
-    # 4. 检查是否主要是特殊字符和数字的组合（如 "057837b47. 0"）
-    special_char_count = sum(1 for c in text_clean if not c.isalnum() and c not in ' .,!?;:\'"-')
-    if total_chars > 5 and (digit_count + special_char_count) / total_chars > 0.8:
-        return True
     
     return False
 
 
 def clean_generated_text(text: str, max_length: int = 512) -> str:
     """
-    清洗生成的文本：
-    1. 移除重复的标点符号（如 "OUT!!! OUT!!!" -> "OUT!")
-    2. 移除重复的短语和句子
-    3. 截断过长的文本
-    4. 提取第一段有效对话
+    清洗 REALTALK 生成的文本（专门针对英文对话）
+    
+    清洗逻辑：
+    1. 先提取有效信息（从特殊格式中提取实际内容）
+    2. 再逐步清洗（移除标签、指令性文本等）
+    3. 最后规范化（去重、格式处理等）
     
     Args:
         text: 原始生成文本
-        max_length: 最大输出长度（字符数）
+        max_length: 最大输出长度（字符数，默认512）
     
     Returns:
         清洗后的文本
@@ -196,84 +109,17 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
     
     # 0. 检测并移除乱码
     if is_garbled_text(text):
-        return ""  # 如果是乱码，直接返回空字符串
+        return ""
     
-    # 1. 移除元数据和角色标识
-    text = re.sub(r'<\|im_start\|>.*?\n|<\|im_end\|>|<\|user\|>|<\|assistant\|>', '', text)
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    text = text.replace('<think>', '').replace('</think>', '')
+    # ============================================
+    # 第一步：提取有效信息（从特殊格式中提取实际内容）
+    # ============================================
     
-    # 1.1. 截断到第一个角色标识或标签之前（只保留第一个用户消息）
-    # 生成的文本应该是用户的下一条消息，不应该包含 Assistant 回复或其他标签
-    # 检测模式：Assistant:, User:, AI的回复是:, [ANSWER], [USER_MESSAGE] 等
-    truncation_patterns = [
-        r'\s*Assistant:\s*',
-        r'\s*User:\s*',
-        r'\s*AI的回复是:\s*',
-        r'\s*AI的回复:\s*',
-        r'\s*\[ANSWER\]\s*',
-        r'\s*\[USER_MESSAGE\]\s*',
-        r'\s*\[SYSTEM_PROMPT',
-        r'\s*\[AI\]\s*',
-        r'\s*\[AI_PROFILE\]',
-        r'\s*\[USER\]\s*',
-        r'\s*\[ASSISTANT\]\s*',
-        # RealPersonaChat 特定的截断模式（日语解释性文本）
-        r'\s*（\d+字程度で）',  # （30字程度で）
-        r'\s*（\d+文字以上）',  # （20文字以上）
-        r'\s*長い文章より',  # 長い文章よりコンパクトで...
-        r'\s*このメッセージの特徴',  # このメッセージの特徴や...
-        r'\s*選択肢',  # 選択肢
-        r'\s*ア：',  # 選択肢ア：
-        r'\s*ユーザーの生成メッセージ',  # ユーザーの生成メッセージは...
-        r'\s*この説明に改善点',  # この説明に改善点はありますか？
-        r'\s*したがって、',  # したがって、選択肢アが...
-        r'\s*このメッセージは会話の中で',  # このメッセージは会話の中で...
-        # 标签和结构化格式
-        r'\s*\[RESULT\]',  # [RESULT]
-        r'\s*\[MODEL_OUTPUT\]',  # [MODEL_OUTPUT]
-        r'\s*\[DIMENSIONS\]',  # [DIMENSIONS]
-        r'\s*\[ANALYSIS\]',  # [ANALYSIS]
-        r'\s*\[SYSTEM_LOGIC\]',  # [SYSTEM_LOGIC]
-        r'\s*\[RESPONSE_\d+\]',  # [RESPONSE_1], [RESPONSE_2], etc.
-        r'\s*このタスクにおける正解',  # このタスクにおける正解は？
-        r'\s*この思考プロセス',  # この思考プロセスにおいて...
-        r'\s*前の会話の続きとして',  # (前の会話の続きとして...)
-        r'\s*ご指定の寸法',  # ご指定の寸法に沿って...
-        r'\s*ご指摘がありますか',  # ご指摘がありますか？
-        r'\s*お返事遅くなり',  # お返事遅くなりまして...
-        r'\s*Also,\s*',  # Also, ... (英文指令)
-        r'\s*分析して、',  # 分析して、ユーザーの次に送信するメッセージがなぜ
-    ]
-    
-    # 找到第一个匹配的截断模式，截断到该位置之前
-    min_pos = len(text)
-    for pattern in truncation_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            pos = match.start()
-            if pos < min_pos:
-                min_pos = pos
-    
-    # 如果找到了截断点，截断文本
-    if min_pos < len(text):
-        text = text[:min_pos].strip()
-    
-    # 1.1.5. RealPersonaChat 特殊处理：移除括号内的指令性文本
-    # 如 "（30字程度で）"、"（20文字以上）" 等，但保留括号后的实际内容
-    text = re.sub(r'（\d+字程度で）\s*', '', text)
-    text = re.sub(r'（\d+文字以上）\s*', '', text)
-    # 移除所有括号注释（如 "(前の会話の続きとして...)"），但保留实际内容
-    text = re.sub(r'\([^)]*\)\s*', '', text)
-    
-    # 1.2. RealPersonaChat 特殊格式处理（在移除标签之前）
-    # 处理 [OUTPUT] 和 [OUTPUT_SCORE] 格式：保留得分最高的 OUTPUT
+    # 1.1. 处理 [OUTPUT] 和 [OUTPUT_SCORE] 格式
     if '[OUTPUT]' in text and '[OUTPUT_SCORE=' in text:
-        # 找到所有 [OUTPUT] ... [OUTPUT_SCORE=X] 的模式
         output_pattern = r'\[OUTPUT\](.*?)\[OUTPUT_SCORE=([\d.]+)\]'
         matches = re.findall(output_pattern, text, re.DOTALL)
         if matches:
-            # 找到得分最高的 OUTPUT
             best_output = None
             best_score = -1
             for output_text, score_str in matches:
@@ -286,471 +132,259 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
                     pass
             if best_output:
                 text = best_output
-            else:
-                # 如果没有找到有效的得分，使用第一个 OUTPUT
+            elif matches:
                 text = matches[0][0].strip()
     
-    # 处理 [RESPONSE_1], [RESPONSE_2] 等格式：保留第一个 RESPONSE 的内容
+    # 1.2. 处理 [RESPONSE_1], [RESPONSE_2] 等格式
     if re.search(r'\[RESPONSE_\d+\]', text):
         response_pattern = r'\[RESPONSE_\d+\]\s*(.*?)(?=\[RESPONSE_\d+\]|$)'
         matches = re.findall(response_pattern, text, re.DOTALL)
         if matches:
-            # 使用第一个 RESPONSE 的内容
             text = matches[0].strip()
     
-    # 处理 JSON 数组格式 [["response1", "response2"]]：保留第一个元素
+    # 1.3. 处理 JSON 数组格式
     json_array_match = re.search(r'\[\s*\[(.*?)\]\s*\]', text, re.DOTALL)
     if json_array_match:
         inner_array = json_array_match.group(1)
-        # 提取第一个字符串元素
         string_match = re.search(r'"([^"]+)"', inner_array)
         if string_match:
             text = string_match.group(1)
         else:
-            # 如果没有引号，尝试提取第一个非空内容
             parts = [p.strip() for p in inner_array.split(',') if p.strip()]
             if parts:
                 text = parts[0].strip('"\'')
     
-    # 处理 [RESULT] 格式：保留 RESULT 内容，移除括号注释
+    # 1.4. 处理 [RESULT] 格式
     if '[RESULT]' in text:
         result_match = re.search(r'\[RESULT\](.*?)(?:\[SYSTEM_LOGIC\]|$)', text, re.DOTALL)
         if result_match:
             result_text = result_match.group(1).strip()
-            # 移除括号注释（如 "(前の会話の続きとして...)"）
             result_text = re.sub(r'\([^)]*\)', '', result_text)
             text = result_text.strip()
     
-    # 1.3. 移除所有方括号内的辅助信息（如 [角色], [需求], [FINISH], [MASK] 等）
-    # 这些方括号内容都是训练数据中的辅助标记，不应该出现在生成的文本中
-    # 注意：特殊格式（[OUTPUT], [RESULT], [RESPONSE_X]）已经在上面处理过了
+    # ============================================
+    # 第二步：移除元数据和格式标记
+    # ============================================
+    
+    # 2.1. 移除元数据标签
+    text = re.sub(r'<\|im_start\|>.*?\n|<\|im_end\|>|<\|user\|>|<\|assistant\|>', '', text)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = text.replace('<think>', '').replace('</think>', '')
+    
+    # 2.2. 移除对话格式标记（User:, Assistant:）
+    text = re.sub(r'User:\s*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'Assistant:\s*', '', text, flags=re.IGNORECASE)
+    
+    # 2.3. 移除所有标签（方括号）
     text = re.sub(r'\[[^\]]*\]', '', text)
     
-    # 1.2.1. 移除 JSON 数组格式（如 ["response1", "response2"]）
-    # 这些通常是训练数据中的多选格式，不应该出现在生成的文本中
-    text = re.sub(r'^\s*\[\s*\[.*?\]\s*\]\s*$', '', text, flags=re.DOTALL | re.MULTILINE)
-    text = re.sub(r'^\s*\[.*?\]\s*$', '', text, flags=re.DOTALL | re.MULTILINE)
+    # ============================================
+    # 第三步：移除指令性文本
+    # ============================================
     
-    # 1.2.2. 移除重复的 "Also, ..." 模式（RealPersonaChat 特有）
-    # 模型有时会生成 "Also, 過去の会話を自然に連続させる。 Also, ..." 这样的重复文本
-    # 移除所有 "Also, " 开头的句子
-    text = re.sub(r'\s*Also,\s*[^。！？]*[。！？]', '', text, flags=re.IGNORECASE)
+    # 3.1. 移除所有指令性文本模式
+    instruction_patterns = [
+        r'Predict the user\'s next message[：:]?\s*',
+        r'Predict the user\'s response[：:]?\s*',
+        r'Note:.*?directly[。.]?\s*',
+        r'Note:.*?output[。.]?\s*',
+        r'No thinking process.*?needed[。.]?\s*',
+        r'Output only.*?reply[。.]?\s*',
+        r'Direct output.*?message[。.]?\s*',
+        r'思考过程.*?不需要[。.]?\s*',
+        r'不需要思考过程[，,]?.*?直接输出[。.]?\s*',
+        r'只需直接输出.*?消息[。.]?\s*',
+        r'直接输出用户.*?消息[。.]?\s*',
+    ]
     
-    # 1.3. 移除训练数据格式标签（如 [ANSWER], [USER_MESSAGE], [SYSTEM_PROMPT] 等）
-    # 这些标签不应该出现在生成的文本中（在截断后可能仍有残留）
-    # 注意：由于上面已经移除了所有方括号内容，这一步主要是为了确保清理干净
-    text = re.sub(r'\[ANSWER\]\s*', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'\[USER_MESSAGE\]\s*', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'\[SYSTEM_PROMPT\]\s*', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'\[SYSTEM_PROMPT\d+\]\s*', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'\[AI\]\s*', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'\[AI_PROFILE\]\s*\d*', '', text, flags=re.IGNORECASE)
+    for pattern in instruction_patterns:
+        text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
     
-    # 1.4. 规范化特殊Unicode字符（em dash, en dash等）
-    # 将各种破折号统一转换为普通连字符或空格
-    text = text.replace('\u2014', '-')  # em dash (—) -> -
-    text = text.replace('\u2013', '-')  # en dash (–) -> -
-    text = text.replace('\u2015', '-')  # horizontal bar (―) -> -
-    text = text.replace('\u2010', '-')  # hyphen (‐) -> -
-    text = text.replace('\u2011', '-')  # non-breaking hyphen (‑) -> -
-    # 将其他特殊引号转换为普通引号
-    text = text.replace('\u2018', "'")  # left single quotation mark (') -> '
-    text = text.replace('\u2019', "'")  # right single quotation mark (') -> '
-    text = text.replace('\u201C', '"')  # left double quotation mark (") -> "
-    text = text.replace('\u201D', '"')  # right double quotation mark (") -> "
-    text = text.replace('\u201E', '"')  # double low-9 quotation mark („) -> "
-    text = text.replace('\u201F', '"')  # double high-reversed-9 quotation mark (‟) -> "
-    # 将其他特殊空格转换为普通空格
-    text = text.replace('\u00A0', ' ')  # non-breaking space -> space
-    text = text.replace('\u2000', ' ')  # en quad -> space
-    text = text.replace('\u2001', ' ')  # em quad -> space
-    text = text.replace('\u2002', ' ')  # en space -> space
-    text = text.replace('\u2003', ' ')  # em space -> space
-    text = text.replace('\u2004', ' ')  # three-per-em space -> space
-    text = text.replace('\u2005', ' ')  # four-per-em space -> space
-    text = text.replace('\u2006', ' ')  # six-per-em space -> space
-    text = text.replace('\u2007', ' ')  # figure space -> space
-    text = text.replace('\u2008', ' ')  # punctuation space -> space
-    text = text.replace('\u2009', ' ')  # thin space -> space
-    text = text.replace('\u200A', ' ')  # hair space -> space
-    text = text.replace('\u202F', ' ')  # narrow no-break space -> space
-    text = text.replace('\u205F', ' ')  # medium mathematical space -> space
-    text = text.replace('\u3000', ' ')  # ideographic space -> space
+    # 3.2. 检测并移除思考过程（在截断之前先移除明显的思考模式）
+    thinking_patterns = [
+        r'Okay,?\s+so\s+',
+        r'Now,?\s+the\s+',
+        r'Wait,?\s+the\s+',
+        r'Looking\s+at\s+',
+        r'Alternatively,?\s+',
+        r'However,?\s+',
+        r'Since\s+the\s+',
+        r'Given\s+the\s+',
+        r'The\s+user\s+(?:has|had|might|could|would|should)',
+        r'user\s+(?:has|had|might|could|would|should)',
+        r'assistant\'s\s+(?:last|response|message)',
+        r'user\'s\s+(?:next|last|response|message)',
+        r'user\s+could\s+say',
+        r'user\s+might\s+',
+        r'user\s+would\s+',
+        r'Maybe\s+they\'ll',
+        r'But\s+the\s+user',
+    ]
     
-    # 1.5. 修复URL中的空格
-    # 模型有时会在URL中错误地插入空格，如 "https://imgur. com/xxx" 或 "https://en. m. wikipedia. org/xxx"
-    # 需要移除URL中的空格，但保留URL边界外的空格
-    def fix_url_in_text(text):
-        # 匹配 https:// 或 http:// 开头的URL
-        # 策略：找到所有以 https:// 或 http:// 开头的URL，移除其中的空格
-        # URL的有效字符：字母、数字、-、.、/、?、#、&、=、%、:、_、~、@、[、]、!、+、*、$、,
-        # URL结束于：空格、换行、<、>、"、'、)、]、}、,、.（如果后面跟空格或换行）
-        # 改进：使用更智能的匹配，识别URL的常见模式
-        # 匹配模式：https?:// 后跟URL字符（包括可能的空格），直到遇到明显的结束符
-        # 注意：URL中可能包含空格（错误生成的），需要移除这些空格
-        # 改进：使用更保守的匹配，但也要处理URL中间有空格但后面直接跟文本的情况
-        # 策略：匹配 https?:// 后跟URL字符（包括可能的空格），但限制最大长度（避免匹配过长）
-        # 同时，识别URL的常见结束模式（如空格、换行、引号、括号、句号后跟空格等）
-        pattern = r'(https?://[^\s\n<>"\'\)\]\}]+(?:\s+[^\s\n<>"\'\)\]\}]+)*)'
-        def replace_url(m):
-            url = m.group(1)
-            match_end = m.end()
-            
-            # 检查URL中是否有查询参数分隔符（? 或 #）
-            # 如果URL中有 ? 或 #，且 ? 或 # 后面有空格，然后是大写字母，URL可能在 ? 或 # 之前就结束了
-            if '?' in url or '#' in url:
-                query_pos = max(url.rfind('?'), url.rfind('#'))
-                if query_pos > 0:
-                    # 检查 ? 或 # 后面是否有空格，然后是大写字母（表示新单词开始）
-                    query_part = url[query_pos+1:]
-                    # 移除查询参数部分中的空格，检查是否以大写字母开头
-                    query_part_no_space = query_part.replace(' ', '')
-                    if query_part_no_space and query_part_no_space[0].isupper():
-                        # 查询参数部分以大写字母开头，可能是误匹配了后面的文本
-                        # 只处理到查询参数开始的位置
-                        url_base = url[:query_pos+1]
-                        fixed_url = url_base.replace(' ', '')
-                        return fixed_url
-                    # 如果查询参数部分很长（>30字符），也可能是误匹配
-                    if len(query_part) > 30:
-                        # 检查查询参数部分是否包含明显的单词边界（空格后跟大写字母）
-                        if ' ' in query_part:
-                            # 找到第一个空格后跟大写字母的位置
-                            space_pos = query_part.find(' ')
-                            if space_pos > 0 and space_pos + 1 < len(query_part):
-                                if query_part[space_pos + 1].isupper():
-                                    # 找到单词边界，URL在 ? 或 # 之前就结束了
-                                    url_base = url[:query_pos+1]
-                                    fixed_url = url_base.replace(' ', '')
-                                    return fixed_url
-            
-            # 检查URL后面是否有明确的结束符
-            if match_end < len(text):
-                next_char = text[match_end]
-                # 如果下一个字符是空格、换行、引号、括号等，说明URL结束了
-                if next_char in ' \n\t<>"\'()[]{}':
-                    # URL结束，移除其中的空格
-                    fixed_url = url.replace(' ', '')
-                    return fixed_url
-                # 如果下一个字符是句号，检查句号后是否有空格或换行
-                elif next_char == '.':
-                    if match_end + 1 < len(text) and text[match_end + 1] in ' \n\t':
-                        # 句号后跟空格，说明URL结束了
-                        fixed_url = url.replace(' ', '')
-                        return fixed_url
-                    # 句号后没有空格，可能是URL的一部分（如 example.com）
-                    # 继续匹配，但限制最大长度（避免匹配过长）
-                    if len(url) > 200:  # URL太长，可能匹配了后面的文本
-                        # 尝试找到URL的实际结束位置（第一个明显的结束符之前）
-                        # 这里先处理当前匹配的部分
-                        fixed_url = url.replace(' ', '')
-                        return fixed_url
-                # 如果下一个字符不是明显的结束符，需要更智能地识别URL的结束
-                # 检查URL中是否有查询参数分隔符（? 或 #）
-                # 如果URL中有 ? 或 #，且后面直接跟文本（没有空格），URL可能在 ? 或 # 之前就结束了
-                # 或者需要更保守的处理：只处理到第一个明显的URL结束位置
-                if '?' in url or '#' in url:
-                    # URL中有查询参数或锚点
-                    # 检查最后一个 ? 或 # 后的内容
-                    query_pos = max(url.rfind('?'), url.rfind('#'))
-                    if query_pos > 0:
-                        query_part = url[query_pos+1:]  # ? 或 # 之后的部分
-                        # 检查查询参数部分是否有明显的结束模式
-                        # 如果查询参数部分很长（>30字符），可能是误匹配了后面的文本
-                        # 或者如果查询参数部分以大写字母开头（表示新单词），可能URL已经结束了
-                        if len(query_part) > 30:
-                            # 检查查询参数部分是否以大写字母开头（表示新单词开始）
-                            if query_part and query_part[0].isupper():
-                                # 查询参数部分以大写字母开头，可能是误匹配了后面的文本
-                                # 只处理到查询参数开始的位置
-                                url_base = url[:query_pos+1]
-                                fixed_url = url_base.replace(' ', '')
-                                return fixed_url
-                            # 如果查询参数部分很长，也可能是误匹配
-                            # 尝试找到合理的截断点（如最后一个 & 或 = 之前）
-                            last_amp = query_part.rfind('&')
-                            last_eq = query_part.rfind('=')
-                            truncate_pos = max(last_amp, last_eq)
-                            if truncate_pos > 10:  # 如果找到了合理的截断点
-                                url_truncated = url[:query_pos+1+truncate_pos+1]
-                                fixed_url = url_truncated.replace(' ', '')
-                                return fixed_url
-                            # 否则，只处理到查询参数开始的位置
-                            url_base = url[:query_pos+1]
-                            fixed_url = url_base.replace(' ', '')
-                            return fixed_url
-                
-                # 检查URL长度和域名模式
-                if len(url) > 100:  # URL已经很长了，可能是误匹配
-                    # 检查URL中是否有常见的域名后缀
-                    domain_patterns = [r'\.com', r'\.org', r'\.net', r'\.edu', r'\.gov', r'\.io', r'\.co', r'\.uk', r'\.youtube']
-                    has_domain = any(re.search(pattern, url, re.IGNORECASE) for pattern in domain_patterns)
-                    if has_domain:
-                        # 有域名模式，尝试找到最后一个域名后的合理结束位置
-                        # 如果URL太长，可能误匹配了后面的文本
-                        # 这里保守处理：只移除空格，不改变URL结构
-                        # 但如果URL超过200字符，可能是误匹配，需要截断
-                        if len(url) > 200:
-                            # 尝试找到合理的截断点（如最后一个 / 或 ? 之前）
-                            last_slash = url.rfind('/')
-                            last_query = url.rfind('?')
-                            truncate_pos = max(last_slash, last_query)
-                            if truncate_pos > 50:  # 如果找到了合理的截断点
-                                url_truncated = url[:truncate_pos+1]
-                                fixed_url = url_truncated.replace(' ', '')
-                                return fixed_url
-                        # 否则，简单地移除空格
-                        fixed_url = url.replace(' ', '')
-                        return fixed_url
-            else:
-                # 文本结束，URL也结束了
-                fixed_url = url.replace(' ', '')
-                return fixed_url
-            
-            # 如果无法确定，返回原始文本（不处理）
-            return m.group(0)
+    # 移除明显的思考过程句子
+    sentences = re.split(r'([.!?]\s+)', text)
+    filtered_sentences = []
+    for i in range(0, len(sentences) - 1, 2):
+        if i + 1 < len(sentences):
+            sent = (sentences[i] + sentences[i + 1]).strip()
+        else:
+            sent = sentences[i].strip()
         
-        return re.sub(pattern, replace_url, text)
+        if not sent:
+            continue
+        
+        # 检查是否是思考过程
+        is_thinking = False
+        sent_lower = sent.lower()
+        for pattern in thinking_patterns:
+            if re.search(pattern, sent_lower, re.IGNORECASE):
+                is_thinking = True
+                break
+        
+        # 如果句子以 "Keep it concise" 或类似指令开头，也移除
+        if re.match(r'^(Keep\s+it\s+concise|Be\s+concise|Make\s+it\s+short)', sent, re.IGNORECASE):
+            is_thinking = True
+        
+        if not is_thinking:
+            filtered_sentences.append(sent)
     
-    text = fix_url_in_text(text)
+    if filtered_sentences:
+        text = ''.join(filtered_sentences)
+    else:
+        # 如果所有句子都被过滤掉了，尝试保留第一个非思考句子
+        for i in range(0, len(sentences) - 1, 2):
+            if i + 1 < len(sentences):
+                sent = (sentences[i] + sentences[i + 1]).strip()
+            else:
+                sent = sentences[i].strip()
+            if sent and len(sent) > 10:
+                # 检查是否包含明显的思考关键词
+                has_thinking_keywords = any(
+                    keyword in sent.lower() 
+                    for keyword in ['okay, so', 'now, the', 'wait,', 'looking at', 'the user', 'user might', 'user could', 'user would', 'assistant\'s']
+                )
+                if not has_thinking_keywords:
+                    text = sent
+                    break
     
-    # 1.6. 移除开头的标点符号和空白字符
-    # 例如：". he. what about..." -> "he. what about..."
-    # 注意：此时特殊Unicode字符已经规范化为普通字符，所以只需要处理普通字符
+    # 3.3. 截断到第一个角色标识或提示信息之前
+    truncation_patterns = [
+        r'\s*Assistant:\s*',
+        r'\s*User:\s*',
+        r'\s*AI\'s reply[：:]?',
+        r'\s*AI\'s response[：:]?',
+        r'\s*Predict the user\'s next message[：:]?\s*',
+    ]
+    
+    min_pos = len(text)
+    for pattern in truncation_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            pos = match.start()
+            if pos < min_pos:
+                min_pos = pos
+    
+    if min_pos < len(text):
+        text = text[:min_pos].strip()
+    
+    # 3.4. 移除括号注释
+    text = re.sub(r'\([^)]*\)', '', text)
+    
+    # 3.5. 移除开头的 "Keep it concise" 等指令性文本
+    text = re.sub(r'^(Keep\s+it\s+concise|Be\s+concise|Make\s+it\s+short)[.!?\s]*', '', text, flags=re.IGNORECASE)
+    
+    # ============================================
+    # 第四步：去重
+    # ============================================
+    
+    # 4.1. 按句子分割并去重
+    sentences = re.split(r'([.!?]\s+)', text)
+    if len(sentences) > 2:
+        seen = set()
+        unique_sentences = []
+        for i in range(0, len(sentences) - 1, 2):
+            if i + 1 < len(sentences):
+                sent = (sentences[i] + sentences[i + 1]).strip()
+            else:
+                sent = sentences[i].strip()
+            
+            if not sent or len(sent) < 3:
+                continue
+            
+            sent_clean = sent.lower().strip()
+            
+            is_duplicate = False
+            for seen_key in seen:
+                if sent_clean == seen_key:
+                    is_duplicate = True
+                    break
+                if len(sent_clean) > 10 and len(seen_key) > 10:
+                    if sent_clean in seen_key or seen_key in sent_clean:
+                        if abs(len(sent_clean) - len(seen_key)) / max(len(sent_clean), len(seen_key)) < 0.2:
+                            is_duplicate = True
+                            break
+            
+            if not is_duplicate:
+                seen.add(sent_clean)
+                unique_sentences.append(sent)
+        
+        if unique_sentences:
+            text = ''.join(unique_sentences)
+        elif len(sentences) > 2:
+            text = (sentences[0] + sentences[1]).strip() if len(sentences) > 1 else sentences[0].strip()
+    
+    # ============================================
+    # 第五步：格式规范化
+    # ============================================
+    
+    # 5.1. 规范化特殊Unicode字符
+    text = text.replace('\u2014', '-').replace('\u2013', '-').replace('\u2015', '-')
+    text = text.replace('\u2018', "'").replace('\u2019', "'")
+    text = text.replace('\u201C', '"').replace('\u201D', '"')
+    text = text.replace('\u00A0', ' ').replace('\u3000', ' ')
+    
+    # 5.2. 移除开头的标点符号
+    text = re.sub(r'^\\?"', '', text)
+    text = re.sub(r'^\\?\'', '', text)
     text = text.lstrip(r'.!?,\s\-')
-    # 如果开头是单个标点后跟空格，也移除（包括连字符）
     text = re.sub(r'^[.!?,:;\-]\s+', '', text)
-    # 如果开头是连字符（可能来自em dash的转换），也移除
     if text.startswith('-'):
         text = text.lstrip('-').lstrip()
     
-    # 2. 清理过度重复的标点符号（保留最多1个）
-    # 例如："OUT!!! OUT!!!" -> "OUT!", "....." -> "."
-    text = re.sub(r'([!?.])\1{2,}', r'\1', text)  # 重复3次或更多 -> 1次
-    
-    # 3. 清理连续重复的相同字符（保留最多2个，但标点符号只保留1个）
-    # 例如："aaaaa" -> "aa", "!!!!!" -> "!"
-    # 先处理标点符号
+    # 5.3. 清理重复的标点符号
+    text = re.sub(r'([!?.])\1{2,}', r'\1', text)
     text = re.sub(r'([!?.])\1+', r'\1', text)
-    # 再处理其他字符
-    text = re.sub(r'(.)\1{2,}', r'\1\1', text)
     
-    # 4. 清理重复的短语和句子（更智能的去重）
-    # 先按句子分割
-    sentence_pattern = r'([.!?]\s*|$)'
-    parts = re.split(sentence_pattern, text)
+    # 5.4. 清理多余空白
+    text = re.sub(r'\s+', ' ', text)
+    text = text.strip()
     
-    # 重组句子并去重
-    seen_sentences = set()
-    unique_parts = []
-    for i in range(0, len(parts) - 1, 2):
-        if i + 1 < len(parts):
-            sentence = (parts[i] + parts[i + 1]).strip()
-        else:
-            sentence = parts[i].strip()
-        
-        if not sentence:
-            continue
-        
-        # 标准化句子用于比较（转小写，移除多余空格）
-        sentence_key = re.sub(r'\s+', ' ', sentence.lower().strip())
-        # 如果句子太短（少于3个字符），跳过去重检查
-        if len(sentence_key) < 3:
-            unique_parts.append(sentence)
-            continue
-        
-        # 检查是否是重复句子（允许部分匹配，如果相似度>80%）
-        is_duplicate = False
-        for seen in seen_sentences:
-            # 简单的相似度检查：如果一个是另一个的子串，或者长度相近且内容相似
-            if sentence_key in seen or seen in sentence_key:
-                is_duplicate = True
-                break
-            # 如果两个句子长度相近，检查字符重叠度
-            if abs(len(sentence_key) - len(seen)) < max(len(sentence_key), len(seen)) * 0.3:
-                common_chars = sum(1 for c in sentence_key if c in seen)
-                if common_chars / max(len(sentence_key), len(seen)) > 0.8:
-                    is_duplicate = True
-                    break
-        
-        if not is_duplicate:
-            seen_sentences.add(sentence_key)
-            unique_parts.append(sentence)
+    # ============================================
+    # 第六步：最终处理
+    # ============================================
     
-    text = ' '.join(unique_parts)
-    
-    # 5. 按句子分割（英文句号、问号、感叹号）
-    sentences = re.split(r'([.!?]\s+)', text)
-    
-    # 6. 去重句子（保留第一次出现）
-    seen = set()
-    unique_sentences = []
-    for i in range(0, len(sentences) - 1, 2):
-        if i + 1 < len(sentences):
-            sentence = sentences[i] + sentences[i + 1]
-        else:
-            sentence = sentences[i]
-        
-        sentence_clean = sentence.strip().lower()
-        if sentence_clean and sentence_clean not in seen:
-            seen.add(sentence_clean)
-            unique_sentences.append(sentence)
-    
-    result = ''.join(unique_sentences)
-    
-    # 如果去重后为空，保留原始文本
-    if not result.strip():
-        result = text
-    
-    # 7. 提取第一段有效内容（按段落分割）
-    # 对于 RealPersonaChat，需要更智能地识别第一段有效回复
-    # 移除开头的指令性文本（如 "（30字程度で）"、"長い文章より..." 等）
-    
-    # 7.0. 提取第一句话（如果文本包含多个句子，只保留第一个）
-    # 对于示例1的情况：移除括号和 "Also, ..." 后，只保留第一句话
-    # 先按日语句子分隔符分割
-    japanese_sentences = re.split(r'([。！？])', result)
-    if len(japanese_sentences) > 2:  # 如果有多个句子
-        # 找到第一个有效的句子（不是指令性文本）
-        first_valid_sentence = None
-        for i in range(0, len(japanese_sentences) - 1, 2):
-            if i + 1 < len(japanese_sentences):
-                sent = (japanese_sentences[i] + japanese_sentences[i + 1]).strip()
-            else:
-                sent = japanese_sentences[i].strip()
-            
-            if sent and not re.match(r'^（\d+字程度で）', sent) and \
-               not sent.startswith('長い文章') and \
-               not sent.startswith('Also,') and \
-               len(sent) > 3:  # 至少3个字符
-                first_valid_sentence = sent
-                break
-        
-        if first_valid_sentence:
-            result = first_valid_sentence
-    
-    paragraphs = [p.strip() for p in result.split('\n') if p.strip()]
-    if paragraphs:
-        # 找到第一个看起来像用户回复的段落（不是指令性文本）
-        for para in paragraphs:
-            # 跳过明显的指令性文本、标签和结构化格式
-            if re.match(r'^（\d+字程度で）', para) or \
-               re.match(r'^（\d+文字以上）', para) or \
-               para.startswith('長い文章より') or \
-               para.startswith('このメッセージの特徴') or \
-               para.startswith('選択肢') or \
-               para.startswith('ユーザーの生成メッセージ') or \
-               para.startswith('この説明に改善点') or \
-               para.startswith('したがって、') or \
-               para.startswith('このメッセージは会話の中で') or \
-               para.startswith('[RESULT]') or \
-               para.startswith('[MODEL_OUTPUT]') or \
-               para.startswith('[DIMENSIONS]') or \
-               para.startswith('[ANALYSIS]') or \
-               para.startswith('[SYSTEM_LOGIC]') or \
-               re.match(r'^\[RESPONSE_\d+\]', para) or \
-               para.startswith('このタスクにおける正解') or \
-               para.startswith('この思考プロセス') or \
-               para.startswith('前の会話の続きとして') or \
-               para.startswith('ご指定の寸法') or \
-               para.startswith('ご指摘がありますか') or \
-               para.startswith('お返事遅くなり') or \
-               para.startswith('分析して、') or \
-               para.startswith('Also,') or \
-               (para.startswith('[') and para.endswith(']')) or \
-               (para.startswith('"') and para.endswith('"')) or \
-               re.match(r'^\s*\[\s*\[', para):  # JSON 数组格式
-                continue
-            # 找到第一个有效回复
-            result = para
-            break
-        else:
-            # 如果所有段落都是指令性文本，尝试从第一个段落中提取有效内容
-            # 移除标签和指令性文本
-            first_para = paragraphs[0]
-            # 移除 JSON 数组格式
-            first_para = re.sub(r'^\s*\[.*?\]\s*$', '', first_para, flags=re.DOTALL)
-            # 移除标签
-            first_para = re.sub(r'\[[^\]]+\]', '', first_para)
-            # 移除指令性文本
-            first_para = re.sub(r'（\d+字程度で）', '', first_para)
-            first_para = re.sub(r'（\d+文字以上）', '', first_para)
-            first_para = first_para.strip()
-            if first_para:
-                result = first_para
-            else:
-                result = paragraphs[0]
-    
-    # 8. 截断过长文本（保留完整的句子）
-    if len(result) > max_length:
-        # 尝试在句子边界截断
-        truncated = result[:max_length]
-        # 找到最后一个句号、问号或感叹号
+    # 6.1. 截断过长文本（保留完整的句子）
+    if len(text) > max_length:
+        truncated = text[:max_length]
         last_punct = max(
             truncated.rfind('.'),
             truncated.rfind('!'),
             truncated.rfind('?')
         )
-        if last_punct > max_length * 0.5:  # 如果找到的标点在文本的后半部分
-            result = truncated[:last_punct + 1]
+        if last_punct > max_length * 0.5:
+            text = truncated[:last_punct + 1]
         else:
-            result = truncated
+            text = truncated
     
-    # 9. 移除开头的标点符号（再次确保，因为可能在前面步骤中又出现了）
-    # 例如：". he. what about..." -> "he. what about..."
-    # 注意：此时特殊Unicode字符已经规范化，所以只需要处理普通字符
-    # 注意：不要移除单引号，因为它可能是单词的一部分（如 "don't", "'tis"）
-    result = result.lstrip(r'.!?,\s\-')
-    result = re.sub(r'^[.!?,:;\-]\s+', '', result)
-    # 如果开头是连字符（可能来自em dash的转换），也移除
-    if result.startswith('-'):
-        result = result.lstrip('-').lstrip()
+    # 6.2. 最终清理空白
+    text = re.sub(r'\s+', ' ', text)
+    text = text.strip()
     
-    # 10. 最后清理：移除多余的空白字符
-    result = re.sub(r'\s+', ' ', result)
-    result = result.strip()
-    
-    # 11. 确保结果不为空
-    if not result:
+    # 6.3. 确保结果不为空
+    if not text:
         return ""
     
-    # 12. 如果结果以标点开头，尝试找到第一个单词
-    if result and result[0] in '.!?,:;':
-        # 找到第一个字母或数字
-        match = re.search(r'[a-zA-Z0-9]', result)
-        if match:
-            result = result[match.start():]
-    
-    # 13. 处理开头的单引号：检测并修复不完整的开头
-    # 例如："'t " 或 "'the" 可能是模型生成的不完整文本
-    if result and result.startswith("'"):
-        # 检查是否是常见的完整缩写（如 'tis, 'twas, 'til）
-        common_contractions = ["'tis", "'twas", "'til", "'tween", "'neath", "'gainst"]
-        is_valid_contraction = any(result.lower().startswith(contraction) for contraction in common_contractions)
-        
-        if not is_valid_contraction:
-            # 如果单引号后跟空格，移除单引号和空格
-            if len(result) > 1 and result[1:2] == ' ':
-                result = result[2:].lstrip()
-            # 如果单引号后跟单个字母+空格（如 "'t "），可能是模型生成的不完整文本
-            elif len(result) > 2 and result[1:2].isalpha() and result[2:3] == ' ':
-                # 检查是否是常见的单字母缩写（如 's, 'm, 'd, 'll, 've, 're）
-                single_letter_contractions = ["'s", "'m", "'d", "'ll", "'ve", "'re"]
-                if result[1:2].lower() + result[2:3] not in single_letter_contractions:
-                    # 如果不是常见的单字母缩写，可能是误生成，移除单引号
-                    result = result[1:].lstrip()
-            # 如果单引号后直接跟单词（如 "'the"），可能是误加的单引号，移除它
-            elif len(result) > 1 and result[1:2].isalpha():
-                # 检查是否是完整的单词（至少3个字符）
-                match = re.match(r"^'([a-zA-Z]{3,})", result)
-                if match:
-                    # 如果是完整的单词，移除单引号
-                    result = result[1:]
-            # 如果单引号后直接跟非字母字符，移除单引号
-            elif len(result) > 1 and not result[1:2].isalpha():
-                result = result[1:].lstrip()
-    
-    return result
+    return text
 
 
 def build_inference_prompt(
@@ -758,188 +392,103 @@ def build_inference_prompt(
     use_profile: bool = True,
     use_context: bool = True,
     use_history: bool = False,
-    dataset_name: str = "Unknown",
-    max_context_turns: int = 15  # 限制 context 的最大轮次数（保守估计，确保不超过 max_model_len）
+    max_context_turns: int = 15
 ) -> str:
     """
-    构建推理 prompt（与训练时的格式一致）
-    
-    Args:
-        user_info: 用户信息（包含 profile, context, history）
-        use_profile: 是否使用 profile
-        use_context: 是否使用对话上下文
-        use_history: 是否使用历史信息
-        dataset_name: 数据集名称
-    
-    Returns:
-        完整的 prompt 字符串
+    构建 REALTALK 推理 prompt（与训练时的格式一致）
     """
     parts = []
     
     # 1. 用户画像
     if use_profile and user_info.get('user_profile'):
         profile = user_info['user_profile']
+        profile_tags = []
         
-        # 对于 DMSC/MovieReview，使用与训练时一致的简单格式
-        if dataset_name in ["DMSC", "MovieReview"]:
-            # DMSC/MovieReview: 使用训练时的简单格式 "用户: xxx"
-            user_name = profile.get('name', 'Unknown')
-            parts.append(f"用户: {user_name}")
-        else:
-            # 其他数据集：使用标签格式
-            profile_tags = []
-            
-            if 'name' in profile:
-                profile_tags.append(f"[USER_NAME={profile['name']}]")
-            if 'age' in profile:
-                profile_tags.append(f"[USER_AGE={profile['age']}]")
-            if 'gender' in profile:
-                profile_tags.append(f"[USER_GENDER={profile['gender']}]")
-            
-            # 人格维度（dimensions）
-            if 'dimensions' in profile:
-                dims = profile['dimensions']
-                if isinstance(dims, dict):
-                    for dim_key, dim_score in dims.items():
-                        if isinstance(dim_score, (int, float)):
-                            # dim_key 格式: "Ocean.Extraversion" 或简单键名
-                            tag_name = f"DIM_{dim_key.upper().replace('.', '_')}"
-                            profile_tags.append(f"[{tag_name}={dim_score}]")
-            
-            # 其他以 DIM_ 开头的字段
-            for key, value in profile.items():
-                if key.startswith('DIM_') or key.startswith('dim_'):
-                    profile_tags.append(f"[{key.upper()}={value}]")
-            
-            if profile_tags:
-                parts.append("[USER_PROFILE]")
-                parts.extend(profile_tags)
+        if 'name' in profile:
+            profile_tags.append(f"[USER_NAME={profile['name']}]")
+        if 'age' in profile:
+            profile_tags.append(f"[USER_AGE={profile['age']}]")
+        if 'gender' in profile:
+            profile_tags.append(f"[USER_GENDER={profile['gender']}]")
+        
+        # 人格维度
+        if 'dimensions' in profile:
+            dims = profile['dimensions']
+            if isinstance(dims, dict):
+                for dim_key, dim_score in dims.items():
+                    if isinstance(dim_score, (int, float)):
+                        tag_name = f"DIM_{dim_key.upper().replace('.', '_')}"
+                        profile_tags.append(f"[{tag_name}={dim_score}]")
+        
+        # 其他以 DIM_ 开头的字段
+        for key, value in profile.items():
+            if key.startswith('DIM_') or key.startswith('dim_'):
+                profile_tags.append(f"[{key.upper()}={value}]")
+        
+        if profile_tags:
+            parts.append("[USER_PROFILE]")
+            parts.extend(profile_tags)
             parts.append("")
     
-    # 2. 任务描述（根据数据集选择语言）
-    # 对于 DMSC/MovieReview，训练时没有任务描述，所以推理时也不添加
-    if dataset_name not in ["DMSC", "MovieReview"]:
-        if dataset_name == "Chameleons":
-            task_text = "Given the historical dialogue of a character in a movie, model the character's speaking style and behavioral patterns, and predict the next utterance the user would produce."
-        elif dataset_name == "RealPersonaChat":
-            task_text = "RealPersonaChatデータセットにおけるユーザーの過去の会話データに基づき、当該ユーザーの会話行動パターンをシミュレートする："
-        elif dataset_name == "LovinkQuestionnaire":
-            # LovinkQuestionnaire: 使用与训练时一致的任务描述
-            task_text = "基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式"
-        elif dataset_name == "LovinkDialogue":
-            # LovinkDialogue: 使用与训练时一致的任务描述
-            task_text = "基于用户在 Lovink 对话中的历史数据，模拟该用户的对话行为模式"
-        elif dataset_name in ["PERSONA_Bench", "PERSONA-Bench"]:
-            # PERSONA_Bench: 使用与训练时一致的任务描述（英文）
-            task_text = "Given the historical dialogue of a user on Reddit, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce."
-        else:
-            task_text = f"基于用户在 {dataset_name} 中的历史数据，模拟该用户的对话行为模式，并预测用户的下一条回复。"
-        
-        parts.append(f"[TASK]\n{task_text}")
-        parts.append("")
+    # 2. 任务描述
+    parts.append("[TASK]")
+    parts.append("Given the historical dialogue of a user on REALTALK, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce.")
+    parts.append("")
     
     # 3. 历史信息
     if use_history and user_info.get('history'):
         history = user_info['history']
-        # 对于 DMSC/MovieReview，使用与训练时一致的格式
-        if dataset_name in ["DMSC", "MovieReview"]:
-            # DMSC/MovieReview: 使用训练时的格式 "历史影评记录 (N条):" 和 "电影《xxx》: 评论"
-            if history:
-                parts.append(f"\n历史影评记录 ({len(history)}条):")
-                for h in history:
-                    # history 可能是 dict 格式 {'movie': 'xxx', 'review': 'yyy'} 或列表格式
-                    if isinstance(h, dict):
-                        movie = h.get('movie', '')
-                        review = h.get('review', '')
-                        if movie and review:
-                            parts.append(f"  电影《{movie}》: {review}")
-                    else:
-                        # 兼容其他格式
-                        content = str(h)
-                        if len(content) > 200:
-                            content = content[:197] + "..."
-                        parts.append(f"  {content}")
-                parts.append("")
-        else:
-            # 其他数据集：使用标签格式
-            history_parts = ["[HISTORY]"]
-            history_to_use = history[-15:]  # 最近15条
-            for i, item in enumerate(history_to_use, 1):
-                if isinstance(item, str):
-                    content = item
-                elif isinstance(item, dict):
-                    content = item.get('next_question', '') or item.get('content', '') or item.get('continuation', '')
-                else:
-                    content = str(item)
-                
-                if content:
-                    if len(content) > 200:
-                        content = content[:197] + "..."
-                    history_parts.append(f"{i}. {content}")
+        history_parts = ["[HISTORY]"]
+        history_to_use = history[-15:]  # 最近15条
+        for i, item in enumerate(history_to_use, 1):
+            if isinstance(item, str):
+                content = item
+            elif isinstance(item, dict):
+                content = item.get('next_question', '') or item.get('content', '') or item.get('continuation', '')
+            else:
+                content = str(item)
             
-            if len(history_parts) > 1:
-                parts.extend(history_parts)
+            if content:
+                if len(content) > 200:
+                    content = content[:197] + "..."
+                history_parts.append(f"{i}. {content}")
+        
+        if len(history_parts) > 1:
+            parts.extend(history_parts)
             parts.append("")
     
-    # 4. 对话上下文（使用 [RECENT_DIALOGUE] 标签，与训练时一致）
-    # 对于 DMSC/MovieReview，如果 context 为空但有 continuation_prefix，使用 continuation_prefix
+    # 4. 对话上下文
     if use_context:
         context = user_info.get('context', [])
-        continuation_prefix = user_info.get('continuation_prefix', '')
-        
         if context:
-            # 有 context，正常处理
             parts.append("[RECENT_DIALOGUE]")
-            # 限制 context 长度：只保留最近的对话轮次
+            # 限制 context 长度
             if len(context) > max_context_turns:
                 context = context[-max_context_turns:]
             
             for turn in context:
                 role = turn.get('role', 'user')
                 content = turn.get('content', '')
-                # 如果单条内容太长，也截断（每条最多 300 字符，更保守）
+                # 如果单条内容太长，也截断
                 if len(content) > 300:
                     content = content[:297] + "..."
                 label = "User" if role == 'user' else "Assistant" if role == 'assistant' else "Unknown"
                 parts.append(f"{label}: {content}")
             parts.append("")
-        elif continuation_prefix and dataset_name in ["DMSC", "MovieReview"]:
-            # DMSC/MovieReview: context 为空但有 continuation_prefix
-            # 训练时格式：直接使用电影名，格式为 "模仿用户风格为电影《xxx》写一条影评："
-            movie_name = continuation_prefix.rstrip(': ').strip()
-            parts.append(f"\n模仿用户风格为电影《{movie_name}》写一条影评：")
     
-    # 5. 生成提示（根据数据集选择语言）
-    # 对于 DMSC/MovieReview，提示已经在上面添加了（"模仿用户风格为电影《xxx》写一条影评："）
-    if dataset_name not in ["DMSC", "MovieReview"]:
-        if dataset_name == "Chameleons":
-            parts.append("Predict the user's next message:")
-        elif dataset_name == "RealPersonaChat":
-            # RealPersonaChat: 使用与训练时一致的生成提示（日语）
-            parts.append("ユーザーの次のメッセージを予測する：")
-        elif dataset_name == "LovinkQuestionnaire":
-            # LovinkQuestionnaire: 使用与训练时一致的生成提示
-            parts.append("预测用户针对该问题的回复：")
-        elif dataset_name == "LovinkDialogue":
-            # LovinkDialogue: 使用与训练时一致的生成提示
-            parts.append("预测用户的下一条消息:")
-        elif dataset_name in ["PERSONA_Bench", "PERSONA-Bench"]:
-            # PERSONA_Bench: 使用与训练时一致的生成提示（英文）
-            parts.append("Predict the user's response to the comment:")
-        else:
-            parts.append("根据以上信息，预测用户的下一条回复:")
+    # 5. 生成提示
+    parts.append("Predict the user's next message:")
     
-    # 6. 添加输出要求说明（避免模型生成思考过程或解释性文本）
-    # 特别针对 RealPersonaChat，因为模型容易生成解释性文本
-    if dataset_name == "RealPersonaChat":
-        parts.append("")
-        parts.append("注意：思考過程や説明は不要です。ユーザーの次のメッセージのみを直接出力してください。")
-    elif dataset_name in ["LovinkDialogue", "LovinkQuestionnaire"]:
-        parts.append("")
-        parts.append("注意：不需要思考过程或解释，直接输出用户的回复即可。")
-    elif dataset_name in ["PERSONA_Bench", "PERSONA-Bench", "Chameleons"]:
-        parts.append("")
-        parts.append("Note: No thinking process or explanation needed. Output only the user's reply directly.")
+    # 6. 添加输出要求说明（加强版，明确禁止思考过程）
+    parts.append("")
+    parts.append("IMPORTANT: Output ONLY the user's next message. Do NOT include:")
+    parts.append("- Any thinking process, reasoning, or explanation")
+    parts.append("- Analysis of the conversation")
+    parts.append("- Phrases like 'Okay, so...', 'Now, the user...', 'Wait, the user...', 'Looking at...'")
+    parts.append("- Any text starting with 'Assistant:' or 'User:'")
+    parts.append("- Any meta-commentary about what the user might say")
+    parts.append("")
+    parts.append("Output format: Directly write what the user would say next, as if you are the user responding in the conversation.")
     
     return "\n".join(parts)
 
@@ -995,7 +544,8 @@ def run_inference_vllm(
     temperature: float = 1.2,
     top_p: float = 0.9,
     top_k: int = 50,
-    max_tokens: int = 512,
+    max_tokens: int = 256,
+    repetition_penalty: float = 1.1,
     seed: int = 42,
     max_context_turns: int = 15,  # 新增：context 最大轮次数
     max_chars_per_turn: int = 300  # 新增：每轮对话最大字符数
@@ -1004,10 +554,10 @@ def run_inference_vllm(
     使用 vLLM 运行推理
     """
     print("=" * 80)
-    print("vLLM 推理配置")
+    print("vLLM 推理配置 - REALTALK")
     print("=" * 80)
     print(f"Checkpoint: {checkpoint_dir}")
-    print(f"数据集: {os.path.basename(scenario_path)}")
+    print(f"数据集: REALTALK")
     print(f"数据路径: {scenario_path}")
     print(f"Ablation: {ablation_config}")
     print(f"  use_profile: {use_profile}")
@@ -1044,6 +594,20 @@ def run_inference_vllm(
     print(f"\n初始化 vLLM (Tensor Parallel={tensor_parallel_size})...")
     start_time = time.time()
     
+    # 规范化 checkpoint_dir 路径
+    if not os.path.isabs(checkpoint_dir):
+        checkpoint_dir = os.path.abspath(checkpoint_dir)
+    if checkpoint_dir.startswith('/outputs/'):
+        checkpoint_dir = checkpoint_dir.replace('/outputs/', '/mnt/parallel/CompactSubset_experiement/outputs/')
+    
+    # 检查路径是否存在
+    if not os.path.exists(checkpoint_dir):
+        print(f"错误: 模型路径不存在: {checkpoint_dir}")
+        print(f"请检查 checkpoint_dir 参数是否正确")
+        return
+    
+    print(f"使用模型路径: {checkpoint_dir}")
+    
     llm = LLM(
         model=checkpoint_dir,
         tensor_parallel_size=tensor_parallel_size,
@@ -1058,36 +622,19 @@ def run_inference_vllm(
     load_time = time.time() - start_time
     print(f"✓ 模型加载完成 (耗时: {load_time:.2f}s)")
     
-    # 获取数据集名称（需要在采样参数设置前确定）
-    dataset_name = os.path.basename(scenario_path)
+    # 采样参数（REALTALK 是英文对话，使用中等 temperature 以平衡多样性和稳定性）
+    enhanced_temperature = max(temperature, 1.0)  # REALTALK 推荐 1.0-1.2
+    actual_repetition_penalty = repetition_penalty if repetition_penalty > 0 else 1.1
+    actual_max_tokens = min(max_tokens, 256)  # 限制最大长度以减少思考过程
     
-    # 采样参数（根据数据集类型调整）
-    # 对于 Questionnaire 数据集：使用相同的 temperature，但只生成1个答案，然后复制5次
-    # 对于其他数据集：使用多样性采样（提高temperature）
-    is_questionnaire = 'Questionnaire' in dataset_name or 'questionnaire' in dataset_name.lower()
-    
-    # 所有数据集使用相同的 temperature 设置
-    enhanced_temperature = max(temperature, 1.2)  # 至少1.2以增加多样性
-    
-    if is_questionnaire:
-        # Questionnaire: 使用相同的 temperature，但只生成1个答案，然后复制5次
-        actual_num_samples = 1  # 只生成1个，后续复制5次
-        print(f"\n采样参数 (Questionnaire 模式):")
-        print(f"  temperature: {enhanced_temperature} (与其他数据集保持一致)")
-        print(f"  top_p: {top_p}")
-        print(f"  top_k: {top_k}")
-        print(f"  max_tokens: {max_tokens}")
-        print(f"  seed: {seed}")
-        print(f"  注意: 将生成1个回答，然后复制{num_samples}次")
-    else:
-        # 其他数据集：使用多样性采样
-        actual_num_samples = num_samples
-        print(f"\n采样参数 (多样性采样):")
-        print(f"  temperature: {enhanced_temperature} (增强多样性)")
-        print(f"  top_p: {top_p}")
-        print(f"  top_k: {top_k}")
-        print(f"  max_tokens: {max_tokens}")
-        print(f"  base_seed: {seed} (每个样本会使用不同的seed)")
+    actual_num_samples = num_samples
+    print(f"\n采样参数 (REALTALK 优化):")
+    print(f"  temperature: {enhanced_temperature} (平衡多样性和稳定性)")
+    print(f"  top_p: {top_p}")
+    print(f"  top_k: {top_k}")
+    print(f"  repetition_penalty: {actual_repetition_penalty} (增加可减少重复和思考过程)")
+    print(f"  max_tokens: {actual_max_tokens} (限制长度以减少思考过程)")
+    print(f"  base_seed: {seed} (每个样本会使用不同的seed)")
     
     # 准备所有推理请求
     print("\n准备推理请求...")
@@ -1125,19 +672,9 @@ def run_inference_vllm(
                 # 提取 context
                 raw_context = data_item.get('context', [])
                 
-                # 对于 DMSC/MovieReview 数据集，即使 context 为空，也可能有 continuation_prefix
-                # 这种情况下应该继续处理（使用 continuation_prefix 作为提示）
+                # REALTALK: context 为空则跳过
                 if not raw_context:
-                    if dataset_name in ["DMSC", "MovieReview"]:
-                        # DMSC/MovieReview: 即使 context 为空，也继续处理（使用 continuation_prefix）
-                        continuation_prefix = data_item.get('continuation_prefix', '')
-                        if not continuation_prefix:
-                            continue  # 如果连 continuation_prefix 都没有，跳过
-                        # 创建一个空的 context，后续会在 prompt 中使用 continuation_prefix
-                        raw_context = []
-                    else:
-                        # 其他数据集：context 为空则跳过
-                        continue
+                    continue
                 
                 # 转换 context 格式：从 {source, content, timestamp} 转换为 {role, content}
                 # 在对话生成任务中：
@@ -1173,47 +710,20 @@ def run_inference_vllm(
                 user_info_with_context = user_info.copy()
                 user_info_with_context['context'] = converted_context
                 
-                # 对于 DMSC/MovieReview，如果有 continuation_prefix，将其添加到 user_info
-                if dataset_name in ["DMSC", "MovieReview"]:
-                    continuation_prefix = data_item.get('continuation_prefix', '')
-                    if continuation_prefix:
-                        user_info_with_context['continuation_prefix'] = continuation_prefix
-                
-                # 获取历史证据（如果需要）
+                # 获取历史证据
                 if use_history and user_info.get('user_train_samples'):
-                    # 对于 DMSC/MovieReview，需要从训练样本中提取历史影评，格式化为训练时的格式
-                    if dataset_name in ["DMSC", "MovieReview"]:
-                        # DMSC/MovieReview: 从训练样本中提取历史影评
-                        # 训练样本格式: {'movie_name': 'xxx', 'next_question': 'yyy', ...}
-                        # 需要转换为: [{'movie': 'xxx', 'review': 'yyy'}, ...]
-                        history_list = []
-                        train_samples = user_info['user_train_samples']
-                        # 使用所有训练样本作为历史（或最近N个）
-                        for sample in train_samples:
-                            movie_name = sample.get('movie_name', '')
-                            review = sample.get('next_question', '')
-                            if movie_name and review:
-                                history_list.append({
-                                    'movie': movie_name,
-                                    'review': review,
-                                    'timestamp': sample.get('timestamp', '')
-                                })
-                        user_info_with_context['history'] = history_list
-                    else:
-                        # 其他数据集：直接使用训练样本
-                        history_evidence = user_info['user_train_samples'][-3:]  # 使用最近3个样本
-                        user_info_with_context['history'] = history_evidence
+                    history_evidence = user_info['user_train_samples'][-3:]  # 使用最近3个样本
+                    user_info_with_context['history'] = history_evidence
                 else:
                     user_info_with_context['history'] = []
                 
-                # 为每个 data_item 生成样本（根据数据集类型决定生成数量）
+                # 为每个 data_item 生成样本
                 for sample_idx in range(actual_num_samples):
                     prompt = build_inference_prompt(
                         user_info=user_info_with_context,
                         use_profile=use_profile,
                         use_context=use_context,
                         use_history=use_history,
-                        dataset_name=dataset_name,
                         max_context_turns=max_context_turns
                     )
                     
@@ -1225,35 +735,18 @@ def run_inference_vllm(
                         'data_item_idx': data_item_idx,
                         'sample_idx': sample_idx
                     })
-                    # 采样参数：所有数据集使用相同的 temperature，但 Questionnaire 只生成1个样本
-                    # 对于 RealPersonaChat，限制 max_tokens 以减少生成解释性文本
-                    actual_max_tokens = max_tokens
-                    if dataset_name == "RealPersonaChat":
-                        # RealPersonaChat 的用户回复通常较短（20-50字符），限制到 150 tokens
-                        # 这样可以减少模型生成过多解释性文本的机会
-                        actual_max_tokens = min(max_tokens, 150)
                     
-                    if is_questionnaire:
-                        # Questionnaire: 使用相同的 temperature，固定seed（因为只生成1个）
-                        all_sampling_params.append(SamplingParams(
-                            temperature=enhanced_temperature,
-                            top_p=top_p,
-                            top_k=top_k,
-                            max_tokens=actual_max_tokens,
-                            seed=seed,  # 固定seed
-                            skip_special_tokens=True,
-                        ))
-                    else:
-                        # 其他数据集：为每个样本使用不同的seed以增加多样性
-                        sample_seed = seed + sample_idx * 1000  # 确保每个样本的seed不同
-                        all_sampling_params.append(SamplingParams(
-                            temperature=enhanced_temperature,
-                            top_p=top_p,
-                            top_k=top_k,
-                            max_tokens=actual_max_tokens,
-                            seed=sample_seed,
-                            skip_special_tokens=True,
-                        ))
+                    # 为每个样本使用不同的seed以增加多样性
+                    sample_seed = seed + sample_idx * 1000  # 确保每个样本的seed不同
+                    all_sampling_params.append(SamplingParams(
+                        temperature=enhanced_temperature,
+                        top_p=top_p,
+                        top_k=top_k,
+                        repetition_penalty=actual_repetition_penalty,  # 添加 repetition_penalty 以减少重复和思考过程
+                        max_tokens=actual_max_tokens,
+                        seed=sample_seed,
+                        skip_special_tokens=True,
+                    ))
     
     print(f"总推理请求数: {len(all_prompts)}")
     
@@ -1287,7 +780,7 @@ def run_inference_vllm(
     examples_content.append("=" * 80)
     examples_content.append("推理示例：输入 Prompt 和模型原始输出")
     examples_content.append("=" * 80)
-    examples_content.append(f"数据集: {dataset_name}")
+    examples_content.append(f"数据集: REALTALK")
     examples_content.append(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     examples_content.append(f"总样本数: {len(all_prompts)}")
     examples_content.append("=" * 80)
@@ -1369,29 +862,8 @@ def run_inference_vllm(
         if idx < 5:
             sample_texts.append(f"样本 {idx}: {repr(generated_text[:200])}")
         
-        # 对于 Questionnaire，使用更宽松的清洗（保留更多内容）
-        if is_questionnaire:
-            # Questionnaire: 只做基本清理，保留更多原始内容
-            cleaned_text = generated_text.strip()
-            # 只移除明显的元数据标签，保留其他内容
-            cleaned_text = re.sub(r'<\|im_start\|>.*?\n|<\|im_end\|>|<\|user\|>|<\|assistant\|>', '', cleaned_text)
-            cleaned_text = re.sub(r'\[ANSWER\]\s*|\[USER_MESSAGE\]\s*|\[SYSTEM_PROMPT', '', cleaned_text, flags=re.IGNORECASE)
-            # 移除方括号内容（但保留文本本身）
-            cleaned_text = re.sub(r'\[[^\]]*\]', '', cleaned_text)
-            # 截断到合理长度
-            if len(cleaned_text) > 300:
-                # 尝试在句子边界截断
-                truncated = cleaned_text[:300]
-                last_punct = max(truncated.rfind('。'), truncated.rfind('！'), truncated.rfind('？'), 
-                               truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
-                if last_punct > 200:
-                    cleaned_text = truncated[:last_punct + 1]
-                else:
-                    cleaned_text = truncated
-            cleaned_text = cleaned_text.strip()
-        else:
-            # 其他数据集：使用完整的清洗函数
-            cleaned_text = clean_generated_text(generated_text, max_length=300)
+        # 使用完整的清洗函数
+        cleaned_text = clean_generated_text(generated_text, max_length=512)
         
         if cleaned_text != generated_text.strip():
             cleaned_count += 1
@@ -1405,12 +877,6 @@ def run_inference_vllm(
             if generated_text.strip():
                 fallback_text = generated_text.strip()[:300]
                 data_item_continuations[key].append(fallback_text)
-    
-    # 打印前几个样本用于调试
-    if sample_texts and is_questionnaire:
-        print(f"\n前5个生成的原始文本样本（用于调试）:")
-        for text in sample_texts:
-            print(f"  {text}")
     
     if cleaned_count > 0:
         print(f"✓ 已清洗 {cleaned_count} 个生成样本")
@@ -1427,13 +893,9 @@ def run_inference_vllm(
             original_count = len(continuations)
             while len(continuations) < num_samples:
                 if original_count > 0:
-                    if is_questionnaire:
-                        # Questionnaire: 直接复制第一个（最可能的）回答
-                        continuations.append(continuations[0])
-                    else:
-                        # 其他数据集: 循环使用已有的样本
-                        base_idx = (len(continuations) - original_count) % original_count
-                        continuations.append(continuations[base_idx])
+                    # 循环使用已有的样本
+                    base_idx = (len(continuations) - original_count) % original_count
+                    continuations.append(continuations[base_idx])
                 else:
                     # 如果完全没有样本，使用占位符
                     continuations.append("[生成失败]")
@@ -1489,10 +951,11 @@ def run_inference_vllm(
         'throughput_samples_per_sec': throughput,
         'tensor_parallel_size': tensor_parallel_size,
         'sampling_params': {
-            'temperature': temperature,
+            'temperature': enhanced_temperature,
             'top_p': top_p,
             'top_k': top_k,
-            'max_tokens': max_tokens
+            'repetition_penalty': actual_repetition_penalty,
+            'max_tokens': actual_max_tokens
         },
         'output_file': output_test_leaderboard_path,
         'timestamp': datetime.now().isoformat()
@@ -1516,75 +979,53 @@ def run_inference_vllm(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='vLLM 高性能推理')
+    parser = argparse.ArgumentParser(description='vLLM 高性能推理 - REALTALK 专用')
     
-    # 模型和数据配置
     parser.add_argument('--checkpoint_dir', type=str, required=True,
                        help='模型 checkpoint 目录')
-    parser.add_argument('--dataset', type=str, required=True,
-                       help='数据集名称 (Chameleons, DMSC, etc.)')
     parser.add_argument('--scenario_path', type=str, default=None,
-                       help='场景数据路径（默认从 dataset 推断）')
+                       help='场景数据路径（默认从 REALTALK 推断）')
     parser.add_argument('--ablation_config', type=str, required=True,
                        choices=['profile_and_history_and_context', 'profile_and_history', 
                                'profile_and_context', 'history_and_context', 
                                'profile_only', 'history_only', 'context_only'],
                        help='消融实验配置')
     
-    # 推理参数
     parser.add_argument('--num_samples', type=int, default=5,
                        help='每个用户生成的样本数（默认: 5）')
     parser.add_argument('--output_dir', type=str, required=True,
                        help='输出目录')
     
-    # vLLM 配置
     parser.add_argument('--tensor_parallel_size', type=int, default=1,
                        help='Tensor Parallel 大小（使用多少张 GPU，默认: 1）')
     parser.add_argument('--gpu_memory_utilization', type=float, default=0.9,
                        help='GPU 内存利用率（0.0-1.0，默认: 0.9）')
     parser.add_argument('--max_model_len', type=int, default=8192,
-                       help='最大模型序列长度（默认: 8192，可根据需要设置为更大值，如 16384）')
+                       help='最大模型序列长度（默认: 8192）')
     
-    # 采样参数
     parser.add_argument('--temperature', type=float, default=1.0,
-                       help='采样温度（默认: 1.0）')
+                       help='采样温度（默认: 1.0，REALTALK 推荐 1.0-1.2）')
     parser.add_argument('--top_p', type=float, default=0.9,
                        help='Top-p 采样（默认: 0.9）')
     parser.add_argument('--top_k', type=int, default=50,
                        help='Top-k 采样（默认: 50）')
-    parser.add_argument('--max_tokens', type=int, default=512,
-                       help='最大生成 token 数（默认: 512）')
+    parser.add_argument('--max_tokens', type=int, default=256,
+                       help='最大生成 token 数（默认: 256，降低以减少思考过程）')
+    parser.add_argument('--repetition_penalty', type=float, default=1.1,
+                       help='重复惩罚（默认: 1.1，增加可减少重复和思考过程）')
     parser.add_argument('--seed', type=int, default=42,
                        help='随机种子（默认: 42）')
     
-    # Context 长度控制参数
     parser.add_argument('--max_context_turns', type=int, default=15,
-                       help='Context 最大对话轮次数（默认: 15，可根据需要调整）')
+                       help='Context 最大对话轮次数（默认: 15）')
     parser.add_argument('--max_chars_per_turn', type=int, default=300,
-                       help='每轮对话最大字符数（默认: 300，可根据需要调整）')
+                       help='每轮对话最大字符数（默认: 300）')
     
     args = parser.parse_args()
     
     # 推断 scenario_path
     if args.scenario_path is None:
-        # 数据集路径映射（不同数据集在不同基础路径下）
-        dataset_path_mapping = {
-            'Chameleons': '/mnt/parallel/GIDigitalTwinBench/RealSelf/Chameleons',
-            'DMSC': '/mnt/parallel/GIDigitalTwinBench/RealSelf/DMSC',
-            'MovieReview': '/mnt/parallel/GIDigitalTwinBench/RealSelf/DMSC',  # MovieReview 使用 DMSC 数据
-            'PERSONA_Bench': '/mnt/parallel/GIDigitalTwinBench/RealSelf/PERSONA-Bench',  # 目录名使用连字符
-            'PERSONA-Bench': '/mnt/parallel/GIDigitalTwinBench/RealSelf/PERSONA-Bench',  # 同时支持连字符格式
-            'LovinkDialogue': '/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue',
-            'LovinkQuestionnaire': '/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkQuestionnaire',
-            'RealPersonaChat': '/mnt/parallel/GIDigitalTwinBench/IdealSelf/RealPersonaChat',
-        }
-        
-        if args.dataset in dataset_path_mapping:
-            args.scenario_path = dataset_path_mapping[args.dataset]
-        else:
-            # 默认尝试 IdealSelf
-            args.scenario_path = f"/mnt/parallel/GIDigitalTwinBench/IdealSelf/{args.dataset}"
-        
+        args.scenario_path = '/mnt/parallel/GIDigitalTwinBench/RealSelf/REALTALK'
         print(f"自动推断数据路径: {args.scenario_path}")
     
     # 从 ablation_config 推断配置
@@ -1616,7 +1057,10 @@ def main():
         top_p=args.top_p,
         top_k=args.top_k,
         max_tokens=args.max_tokens,
-        seed=args.seed
+        repetition_penalty=args.repetition_penalty,
+        seed=args.seed,
+        max_context_turns=args.max_context_turns,
+        max_chars_per_turn=args.max_chars_per_turn
     )
 
 
