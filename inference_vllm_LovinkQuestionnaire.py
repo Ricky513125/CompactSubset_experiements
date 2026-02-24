@@ -1,5 +1,5 @@
 """
-使用 vLLM 进行高性能推理 - REALTALK 专用版本
+使用 vLLM 进行高性能推理 - LovinkQuestionnaire 专用版本
 
 vLLM 优势:
 - 速度提升 2-24x (相比 HuggingFace Transformers)
@@ -11,11 +11,11 @@ vLLM 优势:
 pip install vllm
 
 使用方法:
-python inference_vllm_REALTALK.py \
-    --checkpoint_dir outputs/REALTALK_8B_context_sampled_seed42 \
-    --ablation_config profile_and_context \
+python inference_vllm_LovinkQuestionnaire.py \
+    --checkpoint_dir outputs/LovinkQuestionnaire_8B_profile_and_history \
+    --ablation_config profile_and_history \
     --num_samples 5 \
-    --output_dir outputs/leaderboards/REALTALK_vllm_8B \
+    --output_dir outputs/leaderboards/LovinkQuestionnaire_vllm_8B \
     --tensor_parallel_size 8 \
     --gpu_memory_utilization 0.9 \
     --max_model_len 16384
@@ -30,7 +30,6 @@ from typing import List, Dict, Any, Optional
 import time
 from tqdm import tqdm
 from datetime import datetime
-import random
 
 # 添加当前目录到 Python 路径
 _current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -57,14 +56,15 @@ import re
 
 def is_garbled_text(text: str) -> bool:
     """
-    检测文本是否为乱码（针对英文对话）
+    检测文本是否为乱码（针对中文问卷回答）
     """
     if not text or len(text.strip()) < 3:
         return False
     
     text_clean = text.strip()
     digit_count = sum(1 for c in text_clean if c.isdigit())
-    letter_count = sum(1 for c in text_clean if c.isalpha())
+    # 中文字符检测
+    chinese_count = sum(1 for c in text_clean if '\u4e00' <= c <= '\u9fff')
     total_chars = len(text_clean)
     
     if total_chars == 0:
@@ -80,10 +80,10 @@ def is_garbled_text(text: str) -> bool:
     if long_digit_sequences:
         return True
     
-    # 几乎没有字母（字母占比<10%且总长度>10）
+    # 几乎没有中文字符（中文占比<10%且总长度>10）
     if total_chars > 10:
-        letter_ratio = letter_count / total_chars
-        if letter_ratio < 0.1 and digit_ratio > 0.3:
+        chinese_ratio = chinese_count / total_chars
+        if chinese_ratio < 0.1 and digit_ratio > 0.3:
             return True
     
     return False
@@ -91,7 +91,7 @@ def is_garbled_text(text: str) -> bool:
 
 def clean_generated_text(text: str, max_length: int = 512) -> str:
     """
-    清洗 REALTALK 生成的文本（专门针对英文对话）
+    清洗 LovinkQuestionnaire 生成的文本（专门针对中文问卷回答）
     
     清洗逻辑：
     1. 先提取有效信息（从特殊格式中提取实际内容）
@@ -123,110 +123,98 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
     answer_extracted = False
     
     # 0.1. 识别 [ANSWER]...[/ANSWER] 模板（最高优先级）
+    # 对于 LovinkQuestionnaire，只保留第一个 [ANSWER] 中的内容
     if '[ANSWER]' in text:
         # 先尝试匹配完整的 [ANSWER]...[/ANSWER]
         if '[/ANSWER]' in text:
-            # 匹配所有 [ANSWER]...[/ANSWER] 对
+            # 匹配所有 [ANSWER]...[/ANSWER] 对，只取第一个
             answer_pattern = r'\[ANSWER\](.*?)\[/ANSWER\]'
             matches = re.findall(answer_pattern, text, re.DOTALL)
             if matches:
-                # 定义指令性内容的关键特征（用于快速判断）
-                instruction_indicators = [
-                    'if multiple messages',
-                    'use the exact same formatting',
-                    'output them sequentially',
-                    'each within its own pair',
-                    'use proper formatting',
-                    'do not include markdown',
-                    'make sure',
-                    'ensure',
-                    'your response should',
-                    'output the most likely',
-                    'user\'s message should follow',
-                    'preserving their specific',
-                ]
-                
-                # 遍历所有匹配，找到第一个非指令的内容
-                for match in matches:
-                    content = match.strip()
-                    # 移除中间的 [ANSWER_FORMAT=...] 等标签
-                    content = re.sub(r'\[ANSWER[^\]]*\]', '', content).strip()
-                    
-                    # 检查内容是否足够长
-                    if not content or len(content) < 3:
-                        continue
-                    
-                    # 检查内容是否包含指令性特征
-                    content_lower = content.lower()
-                    is_instruction = False
-                    
-                    # 如果内容以指令开头，跳过
-                    for indicator in instruction_indicators:
-                        if content_lower.startswith(indicator):
-                            is_instruction = True
-                            break
-                    
-                    # 如果内容前50个字符包含多个指令关键词，可能是指令
-                    if not is_instruction and len(content) > 50:
-                        first_part = content_lower[:100]
-                        indicator_count = sum(1 for ind in instruction_indicators if ind in first_part)
-                        if indicator_count >= 2:
-                            is_instruction = True
-                    
-                    # 如果不是指令，使用这个内容
-                    if not is_instruction:
-                        template_type = 'ANSWER'
-                        extracted_text = content
-                        answer_extracted = True
-                        break
-                
-                # 如果所有匹配都被认为是指令，使用最后一个匹配（保底策略）
-                if not extracted_text and matches:
-                    last_match = matches[-1].strip()
-                    last_match = re.sub(r'\[ANSWER[^\]]*\]', '', last_match).strip()
-                    if last_match:
-                        template_type = 'ANSWER'
-                        extracted_text = last_match
-                        answer_extracted = True
+                # 只使用第一个匹配（第一个 [ANSWER] 中的内容）
+                first_match = matches[0].strip()
+                # 移除中间的 [ANSWER_FORMAT=...] 等标签
+                content = re.sub(r'\[ANSWER[^\]]*\]', '', first_match).strip()
+                if content and len(content) >= 1:  # 问卷回答可能很短，降低最小长度要求
+                    template_type = 'ANSWER'
+                    extracted_text = content
+                    answer_extracted = True
         else:
             # 如果没有找到 [/ANSWER]，但找到了 [ANSWER]，提取第一个 [ANSWER] 到下一个 [ANSWER] 或文本末尾
             answer_pattern = r'\[ANSWER\](.*?)(?=\[ANSWER\]|$)'
             matches = re.findall(answer_pattern, text, re.DOTALL)
             if matches:
-                # 找到第一个非空的匹配
-                for match in matches:
-                    content = match.strip()
-                    content = re.sub(r'\[/?ANSWER[^\]]*\]', '', content).strip()
-                    if content and len(content) >= 3:
-                        template_type = 'ANSWER'
-                        extracted_text = content
-                        answer_extracted = True
-                        break
+                # 只使用第一个匹配
+                first_match = matches[0].strip()
+                content = re.sub(r'\[/?ANSWER[^\]]*\]', '', first_match).strip()
+                if content and len(content) >= 1:
+                    template_type = 'ANSWER'
+                    extracted_text = content
+                    answer_extracted = True
     
     # 0.2. 如果识别到模板并提取成功，使用提取的内容
     if extracted_text:
         text = extracted_text
-        
-        # 立即清洗提取内容中可能存在的指令前缀
-        # 这些指令可能在 [ANSWER] 标签内部
-        instruction_prefixes = [
-            r'^If multiple messages are needed[^.]*\.\s*',
-            r'^Use the exact same formatting[^.]*\.\s*',
-            r'^Output them sequentially[^.]*\.\s*',
-            r'^If multiple messages can be generated[^.]*\.\s*',
-            r'^Use proper formatting[^.]*\.\s*',
-            r'^Do not include markdown[^.]*\.\s*',
-        ]
-        
-        for prefix_pattern in instruction_prefixes:
-            match = re.search(prefix_pattern, text, re.IGNORECASE | re.DOTALL)
-            if match:
-                # 移除匹配的指令前缀
-                text = text[match.end():].strip()
-        
     else:
-        # 如果没有识别到模板，继续使用原有逻辑
-        text = original_text
+        # 如果没有识别到 [ANSWER] 标签，尝试提取第一句话或第一个有效回答
+        # 对于问卷回答，常见的格式是：同意、有点同意、完全同意等
+        # 问卷回答关键词列表（按长度从长到短排序，优先匹配长的）
+        questionnaire_keywords = [
+            '完全同意', '完全不同意', '有点同意', '有点不同意', 
+            '同意', '不同意', '不确定'
+        ]
+        # 按长度从长到短排序，优先匹配长的关键词
+        sorted_keywords = sorted(questionnaire_keywords, key=len, reverse=True)
+        
+        # 先移除开头的空白和换行
+        text_clean = original_text.strip()
+        
+        # 尝试匹配第一句话中的问卷回答关键词
+        # 匹配模式：可能包含一些说明文字，但最后是问卷回答
+        # 例如："在提交时仔细阅读，同意。" -> 提取 "同意"
+        first_sentence_pattern = r'^([^。！？\n]+[。！？]?)'
+        first_sentence_match = re.match(first_sentence_pattern, text_clean)
+        
+        if first_sentence_match:
+            first_sentence = first_sentence_match.group(1)
+            # 在第一个句子中查找问卷回答关键词（优先匹配长的）
+            for keyword in sorted_keywords:
+                if keyword in first_sentence:
+                    # 找到关键词，直接使用完整的关键词
+                    # 不要提取从关键词开始到句子结束的部分，因为可能会包含其他内容
+                    text = keyword
+                    answer_extracted = True
+                    break
+        
+        # 如果没有找到关键词，尝试提取第一行或第一个非空行
+        if not answer_extracted:
+            lines = text_clean.split('\n')
+            for line in lines:
+                line = line.strip()
+                if line and len(line) <= 50:  # 问卷回答通常很短
+                    # 检查是否包含问卷回答关键词（优先匹配长的）
+                    for keyword in sorted_keywords:
+                        if keyword in line:
+                            # 直接使用完整的关键词
+                            text = keyword
+                            answer_extracted = True
+                            break
+                    if answer_extracted:
+                        break
+            
+            # 如果还是没有找到，使用第一行（去除空白和标点）
+            if not answer_extracted and lines:
+                first_line = lines[0].strip()
+                # 移除开头的标点和空白
+                first_line = re.sub(r'^[，。！？\s]+', '', first_line)
+                # 如果第一行很短（可能是回答），使用它
+                if first_line and len(first_line) <= 50:
+                    text = first_line
+                else:
+                    text = original_text
+        else:
+            # 如果已经提取到，使用提取的内容
+            pass
     
     # ============================================
     # 第一步：提取有效信息（从特殊格式中提取实际内容）
@@ -326,12 +314,7 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
         if min_pos < len(text):
             text = text[:min_pos].strip()
     
-    # 2.1. 移除重复的标签（如 [/TASK] [/TASK] [/TASK]...）
-    # 这种模式经常出现在模型输出中
-    text = re.sub(r'(\[/?TASK\]\s*){2,}', '', text)  # 移除连续的 [TASK] 或 [/TASK]
-    text = re.sub(r'(\[/?ANSWER\]\s*){2,}', '', text)  # 移除连续的 [ANSWER] 或 [/ANSWER]
-    
-    # 2.2. 移除元数据标签
+    # 2.1. 移除元数据标签
     text = re.sub(r'<\|im_start\|>.*?\n|<\|im_end\|>|<\|user\|>|<\|assistant\|>', '', text)
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     text = text.replace('<think>', '').replace('</think>', '')
@@ -345,192 +328,57 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
     # 匹配 [XXX] 但不匹配 [ANSWER] 或 [/ANSWER]
     text = re.sub(r'\[(?!/?ANSWER\])[^\]]*\]', '', text)
     
-    # 2.4. 通用的指令前缀清洗（无论是否有 [ANSWER] 标签）
-    # 这确保即使没有 [ANSWER] 标签，也能移除指令前缀
-    # 支持连续移除多个指令（如 "Use proper formatting.Do not include markdown..."）
-    instruction_prefixes_to_remove = [
-        # If multiple messages 系列
-        r'^If multiple messages are needed[^.]*\.\s*',
-        r'^If multiple messages can be generated[^.]*\.\s*',
-        r'^If multiple messages should be sent[^.]*\.\s*',
-        
-        # Use/Do not 系列
-        r'^Use the exact same formatting[^.]*\.\s*',
-        r'^Use proper formatting[^.]*\.\s*',
-        r'^Use markdown formatting[^.]*\.\s*',
-        r'^Do not include markdown[^.]*\.\s*',  # 匹配到句号
-        r'^Do not include[^.]*\.\s*',
-        
-        # Output 系列
-        r'^Output them sequentially[^.]*\.\s*',
-        r'^output the most likely message[^.]*\.\s*',
-        
-        # Ensure/Make sure 系列
-        r'^Ensure your response[^.]*\.\s*',
-        r'^Make sure the output[^.]*\.\s*',
-        r'^Make sure[^.]*\.\s*',
-        
-        # 其他常见指令
-        r'^separate with line breaks[^.]*\.\s*',
-        r'^ANSWER\s+',  # 移除独立的 ANSWER 词（不是标签）
-    ]
-    
-    # 循环移除指令前缀，直到没有匹配为止（处理连续的指令）
-    max_iterations = 5  # 防止无限循环
-    for _ in range(max_iterations):
-        matched = False
-        for prefix_pattern in instruction_prefixes_to_remove:
-            match = re.search(prefix_pattern, text, re.IGNORECASE | re.DOTALL)
-            if match:
-                # 移除匹配的指令前缀
-                text = text[match.end():].strip()
-                matched = True
-                break  # 移除一个后，重新开始检查
-        
-        if not matched:
-            break  # 没有匹配到任何指令，退出循环
-    
     # ============================================
     # 第三步：移除指令性文本
     # ============================================
     
-    # 3.1. 移除所有指令性文本模式
-    # 策略：
-    # - 如果指令后面有内容，移除指令保留内容
-    # - 如果指令在正常文本后面，截断指令及之后的内容
-    
-    # Step 1: 处理指令后面跟着正常文本的情况（指令在开头或中间，后面还有句子）
-    # 匹配 "指令.正常文本" 这种模式（注意指令和内容之间可能没有空格）
-    split_patterns = [
-        # 匹配 "指令.内容" → 提取内容
-        (r'There must be no markdown in your answer\.(.*)', r'\1'),
-        (r'Ensure your response does not contain markdown formatting\.(.*)', r'\1'),
-        (r'Please verify your formatting carefully\.(.*)', r'\1'),
-        (r'Make sure the output is correctly formatted\.(.*)', r'\1'),
-        (r'Your response should be exactly one line\.(.*)', r'\1'),
-        (r'Make sure to follow all the formatting rules[^.]*?\.(.*)', r'\1'),
-        (r'Use natural line breaks as per the original content\.(.*)', r'\1'),
-        (r'The user\'s message should follow the same pattern[^.]*?\.(.*)', r'\1'),
-        # 复杂模式：匹配多个指令，提取最后一个指令之后的内容
-        (r'If multiple messages can be inferred.*?If no logical inference exists[^.]*?\.(.*)', r'\1'),
-        (r'If multiple messages can be inferred from context[^.]*?\.(.*)', r'\1'),
-        (r'If no logical inference exists[^.]*?\.(.*)', r'\1'),
-    ]
-    
-    for pattern, replacement in split_patterns:
-        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-        if match and len(match.group(1).strip()) > 10:  # 确保后面有实际内容
-            # 检查提取的内容是否还是指令
-            extracted = match.group(1).strip()
-            extracted_lower = extracted.lower()
-            
-            # 如果提取的内容仍然看起来像指令，跳过
-            if any(marker in extracted_lower[:50] for marker in [
-                'if no logical', 'if multiple', 'output <empty>', 
-                'select the most likely', 'make sure', 'ensure'
-            ]):
-                continue
-            
-            # 替换为后面的内容
-            text = extracted
-            break
-    
-    # Step 2: 截断从指令开始到末尾的内容（如果指令在正常文本后面）
-    # 只有当前面已经有足够的文本时才截断
-    if len(text) > 50:  # 如果文本足够长，才考虑截断
-        truncate_from_instruction_patterns = [
-            r'There must be no markdown',
-            r'Ensure your response does not contain markdown',
-            r'Please verify your formatting',
-            r'Make sure the output is correctly formatted',
-            r'Your response should be exactly one line',
-            r'Make sure to follow all the formatting rules',
-            r'The user often engages in',
-            r'The last message,.*reflects this tone',
-            r'tags\.Please verify',
-            r'The user\'s message should follow the same pattern',
-            r'preserving their specific language and tone',
-            r'If multiple messages can be inferred',
-            r'If no logical inference exists',
-            r'Use natural line breaks as per the original content',
-            # 安全指令
-            r'To ensure the highest level of safety',
-            r'please do not use anything that could cause harm',
-            r'including physical, emotional, financial',
-            r'do not share or create harmful content',
-        ]
-        
-        for pattern in truncate_from_instruction_patterns:
-            match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-            if match and match.start() > 30:  # 只有当指令不在开头时才截断
-                # 截断到指令开始的位置
-                text = text[:match.start()].strip()
-                break
-    
-    # Step 3: 移除其他指令性文本模式
+    # 3.1. 移除所有指令性文本模式（中英文）
     instruction_patterns = [
+        r'预测用户.*?回复[：:]?\s*',
+        r'预测用户.*?回答[：:]?\s*',
         r'Predict the user\'s next message[：:]?\s*',
         r'Predict the user\'s response[：:]?\s*',
+        r'注意[：:].*?直接[。.]?\s*',
+        r'注意[：:].*?输出[。.]?\s*',
         r'Note:.*?directly[。.]?\s*',
         r'Note:.*?output[。.]?\s*',
+        r'不需要思考过程[，,]?.*?直接输出[。.]?\s*',
+        r'只需直接输出.*?回复[。.]?\s*',
+        r'直接输出.*?回答[。.]?\s*',
         r'No thinking process.*?needed[。.]?\s*',
         r'Output only.*?reply[。.]?\s*',
         r'Direct output.*?message[。.]?\s*',
-        r'思考过程.*?不需要[。.]?\s*',
-        r'不需要思考过程[，,]?.*?直接输出[。.]?\s*',
-        r'只需直接输出.*?消息[。.]?\s*',
-        r'直接输出用户.*?消息[。.]?\s*',
-        r'precisely as specified in this instruction[。.]?\s*',
     ]
     
     for pattern in instruction_patterns:
         text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
     
     # 3.2. 检测并移除思考过程（在截断之前先移除明显的思考模式）
+    # 针对中文问卷回答的思考模式
     thinking_patterns = [
+        r'好的[，,]?\s*所以\s+',
+        r'现在[，,]?\s*',
+        r'等等[，,]?\s*',
+        r'看起来\s+',
+        r'另外[，,]?\s*',
+        r'然而[，,]?\s*',
+        r'由于\s+',
+        r'根据\s+',
+        r'用户\s+(?:可能|会|应该|可以|需要)',
+        r'这个问题\s+(?:是|关于|涉及)',
+        r'我认为\s+',
+        r'我觉得\s+',
+        r'我的看法是\s+',
+        r'从\s+.*?\s+来看',
         r'Okay,?\s+so\s+',
         r'Now,?\s+the\s+',
         r'Wait,?\s+the\s+',
         r'Looking\s+at\s+',
-        r'Alternatively,?\s+',
-        r'However,?\s+',
-        r'Since\s+the\s+',
-        r'Given\s+the\s+',
-        r'The\s+user\s+(?:has|had|might|could|would|should)',
-        r'user\s+(?:has|had|might|could|would|should)',
-        r'assistant\'s\s+(?:last|response|message)',
-        r'user\'s\s+(?:next|last|response|message)',
-        r'user\s+could\s+say',
-        r'user\s+might\s+',
-        r'user\s+would\s+',
-        r'Maybe\s+they\'ll',
-        r'But\s+the\s+user',
     ]
     
-    # 移除明显的思考过程句子和指令性句子
+    # 移除明显的思考过程句子
     sentences = re.split(r'([.!?]\s+)', text)
     filtered_sentences = []
-    
-    # 指令性句子的关键特征（扩展列表）
-    instruction_keywords = [
-        'make sure', 'your response should', 'follow all the', 'formatting rules',
-        'precisely as specified', 'the user often engages', 'the last message',
-        'reflects this tone', 'note that', 'keep in mind', 'remember to',
-        'be sure to', 'ensure that', 'output format', 'response format',
-        'verify your formatting', 'no markdown', 'must be no markdown',
-        'does not contain markdown', 'please verify', 'carefully',
-        'there must be no', 'ensure your response',
-        # 新增的关键词
-        'preserving their specific language', 'should follow the same pattern',
-        'if multiple messages can be inferred', 'if no logical inference exists',
-        'use natural line breaks', 'as per the original content',
-        'select the most likely one', 'output <empty>',
-        # 安全指令关键词
-        'to ensure the highest level of safety', 'could cause harm',
-        'physical, emotional, financial', 'legal, or reputational damage',
-        'do not share or create harmful', 'harmful content or material',
-    ]
-    
     for i in range(0, len(sentences) - 1, 2):
         if i + 1 < len(sentences):
             sent = (sentences[i] + sentences[i + 1]).strip()
@@ -548,18 +396,11 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
                 is_thinking = True
                 break
         
-        # 检查是否是指令性句子
-        is_instruction = False
-        for keyword in instruction_keywords:
-            if keyword in sent_lower:
-                is_instruction = True
-                break
-        
         # 如果句子以 "Keep it concise" 或类似指令开头，也移除
         if re.match(r'^(Keep\s+it\s+concise|Be\s+concise|Make\s+it\s+short)', sent, re.IGNORECASE):
             is_thinking = True
         
-        if not is_thinking and not is_instruction:
+        if not is_thinking:
             filtered_sentences.append(sent)
     
     if filtered_sentences:
@@ -572,10 +413,11 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
             else:
                 sent = sentences[i].strip()
             if sent and len(sent) > 10:
-                # 检查是否包含明显的思考关键词
+                # 检查是否包含明显的思考关键词（中英文）
                 has_thinking_keywords = any(
                     keyword in sent.lower() 
-                    for keyword in ['okay, so', 'now, the', 'wait,', 'looking at', 'the user', 'user might', 'user could', 'user would', 'assistant\'s']
+                    for keyword in ['好的，所以', '现在，', '等等，', '看起来', '用户可能', '用户会', '我认为', '我觉得', '这个问题', 
+                                   'okay, so', 'now, the', 'wait,', 'looking at', 'the user', 'user might', 'user could', 'user would', 'assistant\'s']
                 )
                 if not has_thinking_keywords:
                     text = sent
@@ -609,11 +451,66 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
     text = re.sub(r'^(Keep\s+it\s+concise|Be\s+concise|Make\s+it\s+short)[.!?\s]*', '', text, flags=re.IGNORECASE)
     
     # ============================================
-    # 第四步：去重
+    # 第四步：去重和提取第一个有效回答
     # ============================================
     
-    # 4.1. 按句子分割并去重
-    sentences = re.split(r'([.!?]\s+)', text)
+    # 4.1. 对于问卷回答，只保留第一个有效回答
+    # 问卷回答关键词列表（按长度从长到短排序，优先匹配长的）
+    questionnaire_keywords = [
+        '完全同意', '完全不同意', '有点同意', '有点不同意', 
+        '同意', '不同意', '不确定'
+    ]
+    
+    # 如果文本中包含多个问卷回答关键词，只保留第一个
+    # 优先匹配长的关键词（避免"有点同意"被匹配为"同意"）
+    found_keywords = []
+    # 按长度从长到短排序，优先匹配长的关键词
+    sorted_keywords = sorted(questionnaire_keywords, key=len, reverse=True)
+    
+    # 使用正则表达式匹配，确保匹配完整的关键词（不是子串）
+    # 先匹配长的关键词，避免短的关键词覆盖长的
+    matched_positions = set()  # 记录已经被匹配的位置范围
+    
+    for keyword in sorted_keywords:
+        # 使用正则表达式查找所有匹配位置
+        pattern = re.escape(keyword)
+        matches = list(re.finditer(pattern, text))
+        for match in matches:
+            start_pos = match.start()
+            end_pos = match.end()
+            
+            # 检查这个位置是否已经被更长的关键词覆盖
+            is_covered = False
+            for (covered_start, covered_end) in matched_positions:
+                if covered_start <= start_pos < covered_end:
+                    is_covered = True
+                    break
+            
+            if not is_covered:
+                found_keywords.append((start_pos, keyword))
+                matched_positions.add((start_pos, end_pos))
+                break  # 每个关键词只记录第一个匹配位置
+    
+    if found_keywords:
+        # 按位置排序，找到第一个出现的关键词
+        found_keywords.sort(key=lambda x: x[0])
+        first_keyword_pos, first_keyword = found_keywords[0]
+        
+        # 提取从第一个关键词开始的内容
+        # 关键：只保留完整的关键词本身，不要截断到下一个关键词
+        # 因为"有点同意"包含"同意"，如果截断到"同意"的位置，就会丢失"有点"
+        
+        # 直接提取完整的关键词
+        extracted = first_keyword
+        
+        # 如果关键词后面还有内容，检查是否需要保留
+        # 但通常问卷回答就是关键词本身，所以直接使用关键词即可
+        # 如果原始文本在关键词后面有标点或其他内容，可以保留（但通常不需要）
+        
+        text = extracted
+    
+    # 4.2. 按句子分割并去重（如果还有多个句子）
+    sentences = re.split(r'([。！？\.!?]\s*)', text)
     if len(sentences) > 2:
         seen = set()
         unique_sentences = []
@@ -623,28 +520,23 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
             else:
                 sent = sentences[i].strip()
             
-            if not sent or len(sent) < 3:
+            if not sent or len(sent) < 1:  # 问卷回答可能很短，降低最小长度
                 continue
             
-            sent_clean = sent.lower().strip()
+            sent_clean = re.sub(r'[，。！？\s]', '', sent).lower().strip()
             
             is_duplicate = False
             for seen_key in seen:
                 if sent_clean == seen_key:
                     is_duplicate = True
                     break
-                if len(sent_clean) > 10 and len(seen_key) > 10:
-                    if sent_clean in seen_key or seen_key in sent_clean:
-                        if abs(len(sent_clean) - len(seen_key)) / max(len(sent_clean), len(seen_key)) < 0.2:
-                            is_duplicate = True
-                            break
             
             if not is_duplicate:
                 seen.add(sent_clean)
                 unique_sentences.append(sent)
         
         if unique_sentences:
-            text = ''.join(unique_sentences)
+            text = unique_sentences[0]  # 只保留第一个非重复句子
         elif len(sentences) > 2:
             text = (sentences[0] + sentences[1]).strip() if len(sentences) > 1 else sentences[0].strip()
     
@@ -702,41 +594,6 @@ def clean_generated_text(text: str, max_length: int = 512) -> str:
     if not text:
         return ""
     
-    # 6.5. 最终检查：如果整个文本看起来仍然是指令性的，返回空字符串
-    text_lower = text.lower()
-    instruction_markers = [
-        "user's message should",
-        "should follow the same pattern",
-        "preserving their specific",
-        "if multiple messages can be inferred",
-        "if no logical inference",
-        "select the most likely",
-        "use natural line breaks",
-        "as per the original content",
-        "make sure the output",
-        "your response should",
-        "ensure your response",
-        "output <empty>",
-        "to ensure the highest level of safety",
-        "could cause harm",
-        "do not share or create harmful",
-    ]
-    
-    # 检查是否包含大量的 [/TASK] 重复（说明这是垃圾输出）
-    task_tag_count = text.count('[/TASK]') + text.count('[TASK]')
-    if task_tag_count > 3:  # 超过3个 TASK 标签
-        return ""
-    
-    # 如果文本太短且完全匹配指令特征，返回空
-    if len(text) < 150:
-        matching_markers = sum(1 for marker in instruction_markers if marker in text_lower)
-        if matching_markers >= 2:  # 匹配2个或以上指令标记
-            return ""
-        
-        # 检查是否整句都是指令
-        if any(text_lower.startswith(marker) for marker in instruction_markers):
-            return ""
-    
     return text
 
 
@@ -748,52 +605,74 @@ def build_inference_prompt(
     max_context_turns: int = 15
 ) -> str:
     """
-    构建 REALTALK 推理 prompt（与训练时的格式一致）
+    构建 LovinkQuestionnaire 推理 prompt（与训练时的格式一致）
     """
     parts = []
     
-    # 1. 用户画像
+    # 1. USER_PROFILE 部分 - 与训练时格式一致
     if use_profile and user_info.get('user_profile'):
         profile = user_info['user_profile']
         profile_tags = []
         
-        if 'name' in profile:
+        # 基础信息标签
+        if 'name' in profile and profile['name']:
             profile_tags.append(f"[USER_NAME={profile['name']}]")
-        if 'age' in profile:
+        if 'age' in profile and profile['age']:
             profile_tags.append(f"[USER_AGE={profile['age']}]")
-        if 'gender' in profile:
+        if 'gender' in profile and profile['gender']:
             profile_tags.append(f"[USER_GENDER={profile['gender']}]")
         
-        # 人格维度
-        if 'dimensions' in profile:
+        # 心理维度标签（dimensions）- 支持扁平化和嵌套格式
+        if 'dimensions' in profile and isinstance(profile['dimensions'], dict):
             dims = profile['dimensions']
-            if isinstance(dims, dict):
+            
+            # 检查是否是扁平化格式（包含 "." 的键）
+            is_flat = any('.' in str(k) for k in dims.keys())
+            
+            if is_flat:
+                # 扁平化格式：直接遍历
                 for dim_key, dim_score in dims.items():
-                    if isinstance(dim_score, (int, float)):
+                    if dim_score is not None:
                         tag_name = f"DIM_{dim_key.upper().replace('.', '_')}"
                         profile_tags.append(f"[{tag_name}={dim_score}]")
+            else:
+                # 嵌套格式：需要遍历两层
+                for scale_name, scale_data in dims.items():
+                    if isinstance(scale_data, dict) and 'dimensions' in scale_data:
+                        subdims = scale_data['dimensions']
+                        for subdim_name, subdim_data in subdims.items():
+                            if isinstance(subdim_data, dict) and 'score' in subdim_data:
+                                score = subdim_data['score']
+                                tag_name = f"DIM_{scale_name.upper()}_{subdim_name.upper()}"
+                                profile_tags.append(f"[{tag_name}={score}]")
         
-        # 其他以 DIM_ 开头的字段
+        # 其他 profile 字段
+        excluded_keys = {'name', 'age', 'gender', 'dimensions', 'unstructured'}
         for key, value in profile.items():
-            if key.startswith('DIM_') or key.startswith('dim_'):
-                profile_tags.append(f"[{key.upper()}={value}]")
+            if key not in excluded_keys and value:
+                tag_name = f"USER_{key.upper()}"
+                profile_tags.append(f"[{tag_name}={value}]")
         
         if profile_tags:
             parts.append("[USER_PROFILE]")
             parts.extend(profile_tags)
             parts.append("")
     
-    # 2. 任务描述
+    # 2. TASK 部分 - 与训练时一致
     parts.append("[TASK]")
-    parts.append("Given the historical dialogue of a user on REALTALK, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce.")
+    parts.append("基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式")
     parts.append("")
     
-    # 3. 历史信息
+    # 3. HISTORY 部分 - 与训练时格式一致
     if use_history and user_info.get('history'):
         history = user_info['history']
         history_parts = ["[HISTORY]"]
-        history_to_use = history[-15:]  # 最近15条
+        # 限制历史条目数量，避免过长
+        max_history_items = 15
+        history_to_use = history[:max_history_items] if len(history) > max_history_items else history
+        
         for i, item in enumerate(history_to_use, 1):
+            # 支持多种格式的历史
             if isinstance(item, str):
                 content = item
             elif isinstance(item, dict):
@@ -802,6 +681,7 @@ def build_inference_prompt(
                 content = str(item)
             
             if content:
+                # 截断过长的历史项
                 if len(content) > 200:
                     content = content[:197] + "..."
                 history_parts.append(f"{i}. {content}")
@@ -810,31 +690,30 @@ def build_inference_prompt(
             parts.extend(history_parts)
             parts.append("")
     
-    # 4. 对话上下文
+    # 4. 问卷问题部分 - LovinkQuestionnaire 使用问题格式，不是对话格式
     if use_context:
         context = user_info.get('context', [])
         if context:
-            parts.append("[RECENT_DIALOGUE]")
-            # 限制 context 长度
-            if len(context) > max_context_turns:
-                context = context[-max_context_turns:]
-            
-            for turn in context:
-                role = turn.get('role', 'user')
-                content = turn.get('content', '')
-                # 如果单条内容太长，也截断
-                if len(content) > 300:
-                    content = content[:297] + "..."
-                label = "User" if role == 'user' else "Assistant" if role == 'assistant' else "Unknown"
-                parts.append(f"{label}: {content}")
-            parts.append("")
+            # 对于问卷，context 是问题列表，只取最后一个问题（当前要回答的问题）
+            # 如果 context 中有多个问题，只使用最后一个
+            if len(context) > 0:
+                # 获取最后一个问题（通常是当前要回答的问题）
+                last_question = context[-1]
+                question_content = last_question.get('content', '') if isinstance(last_question, dict) else str(last_question)
+                
+                # 如果问题太长，截断
+                if len(question_content) > 500:
+                    question_content = question_content[:497] + "..."
+                
+                # 直接显示问题，使用 [CURRENT_QUESTION] 格式（与训练时一致）
+                parts.append(f"[CURRENT_QUESTION]\n{question_content}")
+                parts.append("")
     
-    # 5. 生成提示
-    parts.append("Predict the user's next message:")
+    # 5. 预测指令 - 与训练时一致（中文）
+    parts.append("预测用户针对该问题的回复：")
     
-    # 6. 添加输出要求说明（与训练时保持一致，使用 [ANSWER] 标签）
-    parts.append("")
-    parts.append("Note: Do not include any thinking process or explanation. Output only the user's next message between [ANSWER] and [/ANSWER] tags.")
+    # 6. 添加输出要求说明（与训练时保持一致，使用 [ANSWER] 标签，中文）
+    parts.append("注意：请直接给出用户针对该问题的回复，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
     
     return "\n".join(parts)
 
@@ -886,24 +765,24 @@ def run_inference_vllm(
     output_dir: str,
     tensor_parallel_size: int = 1,
     gpu_memory_utilization: float = 0.9,
-    max_model_len: int = 8192,
-    temperature: float = 1.2,
-    top_p: float = 0.9,
+    max_model_len: int = 2048,
+    temperature: float = 0.7,
+    top_p: float = 0.85,
     top_k: int = 50,
-    max_tokens: int = 256,
     repetition_penalty: float = 1.1,
+    max_tokens: int = 64,
     seed: int = 42,
-    max_context_turns: int = 15,  # 新增：context 最大轮次数
+    max_context_turns: int = 15,
     max_chars_per_turn: int = 300  # 新增：每轮对话最大字符数
 ):
     """
     使用 vLLM 运行推理
     """
     print("=" * 80)
-    print("vLLM 推理配置 - REALTALK")
+    print("vLLM 推理配置 - LovinkQuestionnaire")
     print("=" * 80)
     print(f"Checkpoint: {checkpoint_dir}")
-    print(f"数据集: REALTALK")
+    print(f"数据集: LovinkQuestionnaire")
     print(f"数据路径: {scenario_path}")
     print(f"Ablation: {ablation_config}")
     print(f"  use_profile: {use_profile}")
@@ -968,13 +847,13 @@ def run_inference_vllm(
     load_time = time.time() - start_time
     print(f"✓ 模型加载完成 (耗时: {load_time:.2f}s)")
     
-    # 采样参数（REALTALK 是英文对话，使用中等 temperature 以平衡多样性和稳定性）
-    enhanced_temperature = max(temperature, 1.0)  # REALTALK 推荐 1.0-1.2
+    # 采样参数（LovinkQuestionnaire 是中文问卷回答）
+    enhanced_temperature = max(temperature, 0.8)  # 问卷回答推荐 0.8-1.0
     actual_repetition_penalty = repetition_penalty if repetition_penalty > 0 else 1.1
     actual_max_tokens = min(max_tokens, 256)  # 限制最大长度以减少思考过程
     
     actual_num_samples = num_samples
-    print(f"\n采样参数 (REALTALK 优化):")
+    print(f"\n采样参数 (LovinkQuestionnaire 优化):")
     print(f"  temperature: {enhanced_temperature} (平衡多样性和稳定性)")
     print(f"  top_p: {top_p}")
     print(f"  top_k: {top_k}")
@@ -1015,41 +894,33 @@ def run_inference_vllm(
         for collection_idx, collection in enumerate(collections):
             data_items = collection.get('data', [])
             for data_item_idx, data_item in enumerate(data_items):
-                # 提取 context
+                # 提取 context（问卷问题）
                 raw_context = data_item.get('context', [])
                 
-                # REALTALK: context 为空则跳过
+                # LovinkQuestionnaire: context 为空则跳过
                 if not raw_context:
                     continue
                 
-                # 转换 context 格式：从 {source, content, timestamp} 转换为 {role, content}
-                # 在对话生成任务中：
-                # - 'assistant' 表示目标用户（我们要预测的用户，如 DANTE）
-                # - 'user' 表示对话者（其他人，如 CAITLIN）
-                user_name = user_info.get('user_profile', {}).get('name', '')
+                # 转换 context 格式：对于问卷，context 是问题列表
+                # 在问卷任务中，context 只包含问题（不是对话），所以直接使用原始格式
+                # 但为了兼容 build_inference_prompt 的接口，仍然转换为 {role, content} 格式
+                # 所有 context 项都是问题，role 设为 'user'
                 converted_context = []
                 
-                # 限制 context 长度：只保留最近的对话轮次（在转换时就截断，避免构建过长的 prompt）
-                # 使用传入的参数
-                max_turns = max_context_turns
-                max_chars = max_chars_per_turn
-                
-                # 只处理最近的 max_turns 轮
-                context_to_process = raw_context[-max_turns:] if len(raw_context) > max_turns else raw_context
-                
-                for turn in context_to_process:
-                    source = turn.get('source', '')
-                    content = turn.get('content', '')
+                # 对于问卷，通常只有一个问题（当前要回答的问题）
+                # 只取最后一个问题（当前要回答的问题）
+                if len(raw_context) > 0:
+                    last_question = raw_context[-1]
+                    question_content = last_question.get('content', '') if isinstance(last_question, dict) else str(last_question)
                     
-                    # 截断单条内容（如果太长）
-                    if len(content) > max_chars:
-                        content = content[:max_chars-3] + "..."
+                    # 如果问题太长，截断
+                    if len(question_content) > 500:
+                        question_content = question_content[:497] + "..."
                     
-                    # 判断 role：如果 source 匹配用户名（目标用户），则为 'assistant'，否则为 'user'（对话者）
-                    role = 'assistant' if source == user_name else 'user'
+                    # 问卷问题作为 'user' 角色
                     converted_context.append({
-                        'role': role,
-                        'content': content
+                        'role': 'user',
+                        'content': question_content
                     })
                 
                 # 将 context 添加到 user_info
@@ -1083,7 +954,7 @@ def run_inference_vllm(
                     })
                     
                     # 为每个样本使用不同的seed以增加多样性
-                    sample_seed = seed + sample_idx * 1  # 确保每个样本的seed不同
+                    sample_seed = seed + sample_idx * 1 # 确保每个样本的seed不同
                     all_sampling_params.append(SamplingParams(
                         temperature=enhanced_temperature,
                         top_p=top_p,
@@ -1126,7 +997,7 @@ def run_inference_vllm(
     examples_content.append("=" * 80)
     examples_content.append("推理示例：输入 Prompt 和模型原始输出")
     examples_content.append("=" * 80)
-    examples_content.append(f"数据集: REALTALK")
+    examples_content.append(f"数据集: LovinkQuestionnaire")
     examples_content.append(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     examples_content.append(f"总样本数: {len(all_prompts)}")
     examples_content.append("=" * 80)
@@ -1194,89 +1065,119 @@ def run_inference_vllm(
     
     # 按 data_item 组织生成的文本，并进行清洗
     print(f"\n清洗生成的文本...")
-    data_item_continuations = {}  # {(test_sample_idx, collection_idx, data_item_idx): [continuations]}
+    data_item_samples = {}  # key: (test_sample_idx, collection_idx, data_item_idx), value: dict of {sample_idx: cleaned_text}
     
     cleaned_count = 0
     empty_count = 0
-    sample_texts = []  # 用于调试：保存前几个生成的文本
+    
+    # 保存原始输出和清洗后的结果
+    processing_log_content = []
+    processing_log_content.append("=" * 80)
+    processing_log_content.append("推理阶段原始输出和处理结果")
+    processing_log_content.append("=" * 80)
+    processing_log_content.append("")
+    
+    # 按 data_item 和 sample_idx 分组处理
     for idx, (metadata, generated_text) in enumerate(zip(all_metadata, generated_texts)):
         key = (metadata['test_sample_idx'], metadata['collection_idx'], metadata['data_item_idx'])
-        if key not in data_item_continuations:
-            data_item_continuations[key] = []
+        sample_idx = metadata['sample_idx']
         
-        # 保存前几个原始文本用于调试
-        if idx < 5:
-            sample_texts.append(f"样本 {idx}: {repr(generated_text[:200])}")
+        if key not in data_item_samples:
+            data_item_samples[key] = {}
         
-        # 使用完整的清洗函数
+        # 使用完整的清洗函数（只保留第一个 [ANSWER] 中的内容）
         cleaned_text = clean_generated_text(generated_text, max_length=512)
         
         if cleaned_text != generated_text.strip():
             cleaned_count += 1
         
-        # 只添加有效的清洗后文本
-        # 如果清洗后为空，跳过（不使用原始文本）
-        # 后续会从同一个 data_item 的其他有效样本中复制
+        # 保存原始输出和清洗后的结果
+        test_sample = test_leaderboard[metadata['test_sample_idx']]
+        collection = test_sample['task']['task_behavior_collections'][metadata['collection_idx']]
+        data_item = collection['data'][metadata['data_item_idx']]
+        
+        processing_log_content.append(f"样本 #{idx + 1}")
+        processing_log_content.append(f"Data Item: test_sample_idx={metadata['test_sample_idx']}, collection_idx={metadata['collection_idx']}, data_item_idx={metadata['data_item_idx']}, sample_idx={sample_idx}")
+        processing_log_content.append("-" * 80)
+        processing_log_content.append("【输入 Prompt】")
+        processing_log_content.append(all_prompts[idx])
+        processing_log_content.append("")
+        processing_log_content.append("【原始输出】")
+        processing_log_content.append(generated_text)
+        processing_log_content.append("")
+        processing_log_content.append("【清洗后结果】")
         if cleaned_text:
-            data_item_continuations[key].append(cleaned_text)
+            processing_log_content.append(cleaned_text)
+        else:
+            processing_log_content.append("[清洗后为空]")
+        processing_log_content.append("")
+        processing_log_content.append("=" * 80)
+        processing_log_content.append("")
+        
+        if cleaned_text:
+            # 对于每个 sample_idx，保存清洗后的文本
+            data_item_samples[key][sample_idx] = cleaned_text
         else:
             empty_count += 1
+            # 如果清洗后为空，标记为 None
+            data_item_samples[key][sample_idx] = None
     
     if cleaned_count > 0:
         print(f"✓ 已清洗 {cleaned_count} 个生成样本")
     if empty_count > 0:
-        print(f"  警告: {empty_count} 个生成样本清洗后为空，将从其他有效样本中复制")
+        print(f"  警告: {empty_count} 个生成样本清洗后为空，将标记为[生成失败]")
     
-    # 确保每个 data_item 都有 num_samples 个 continuations
-    print(f"\n确保每个 data_item 都有 {num_samples} 个 continuations...")
-    insufficient_count = 0
-    for key, continuations in data_item_continuations.items():
-        if len(continuations) < num_samples:
-            insufficient_count += 1
-            original_count = len(continuations)
-            
-            # 如果有有效样本，从中随机复制填充
-            if original_count > 0:
-                while len(continuations) < num_samples:
-                    # 随机选择一个已有的样本进行复制
-                    random_idx = random.randint(0, original_count - 1)
-                    continuations.append(continuations[random_idx])
-            else:
-                # 如果完全没有有效样本，使用占位符
-                while len(continuations) < num_samples:
-                    continuations.append("[生成失败]")
-            
-            data_item_continuations[key] = continuations
-    
-    if insufficient_count > 0:
-        print(f"✓ 已填充 {insufficient_count} 个 data_item 的 continuations（从有效样本中随机复制）")
-    
+    # 保存原始输出和清洗后的结果到文件
+    processing_log_file = os.path.join(output_dir, 'inference_processing_log.txt')
+    with open(processing_log_file, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(processing_log_content))
+    print(f"✓ 原始输出和处理结果已保存到: {processing_log_file}")
     
     # 填充到 test_leaderboard
+    # 对于每个 data_item，按 sample_idx 顺序填充 continuations
+    print(f"\n填充 continuations 到 test_leaderboard...")
     filled_count = 0
-    insufficient_count = 0
-    for (test_sample_idx, collection_idx, data_item_idx), continuations in data_item_continuations.items():
+    copied_count = 0
+    failed_count = 0
+    for key, samples_dict in data_item_samples.items():
+        test_sample_idx, collection_idx, data_item_idx = key
         test_sample = test_leaderboard[test_sample_idx]
         collection = test_sample['task']['task_behavior_collections'][collection_idx]
         data_item = collection['data'][data_item_idx]
         
-        # 确保有 num_samples 个（前面已经保证，这里再次确认）
-        final_continuations = continuations[:num_samples]
-        if len(final_continuations) < num_samples:
-            # 如果还是不够，填充到 num_samples 个
-            while len(final_continuations) < num_samples:
-                if len(final_continuations) > 0:
-                    final_continuations.append(final_continuations[-1])  # 复制最后一个
+        # 先收集所有有效的回答
+        valid_answers = []
+        for sample_idx in range(num_samples):
+            if sample_idx in samples_dict and samples_dict[sample_idx]:
+                valid_answers.append(samples_dict[sample_idx])
+        
+        # 按 sample_idx 顺序（0, 1, 2, 3, 4）填充 continuations
+        final_continuations = []
+        for sample_idx in range(num_samples):
+            if sample_idx in samples_dict and samples_dict[sample_idx]:
+                # 使用对应 sample_idx 的有效回答
+                final_continuations.append(samples_dict[sample_idx])
+            else:
+                # 如果该 sample_idx 没有有效回答，从其他有效的回答中复制一个
+                if valid_answers:
+                    # 循环使用有效回答
+                    copy_idx = len(final_continuations) % len(valid_answers)
+                    final_continuations.append(valid_answers[copy_idx])
+                    copied_count += 1
                 else:
-                    final_continuations.append("[生成失败]")  # 占位符
-            insufficient_count += 1
+                    # 如果所有 sample_idx 都没有有效回答，标记为生成失败
+                    final_continuations.append("[生成失败]")
+                    failed_count += 1
         
         data_item['continuations'] = final_continuations
         filled_count += 1
     
+    if copied_count > 0:
+        print(f"  信息: {copied_count} 个空样本已从其他有效回答中复制")
+    if failed_count > 0:
+        print(f"  警告: {failed_count} 个 data_item 的所有样本清洗后为空，已标记为[生成失败]")
+    
     print(f"✓ 已填充 {filled_count} 个 data_item 的 continuations")
-    if insufficient_count > 0:
-        print(f"  警告: {insufficient_count} 个 data_item 使用了备用策略填充")
     
     # 保存填充后的完整 test_leaderboard.json
     print(f"\n保存填充后的 test_leaderboard 到: {output_dir}")
@@ -1326,12 +1227,12 @@ def run_inference_vllm(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='vLLM 高性能推理 - REALTALK 专用')
+    parser = argparse.ArgumentParser(description='vLLM 高性能推理 - LovinkQuestionnaire 专用')
     
     parser.add_argument('--checkpoint_dir', type=str, required=True,
                        help='模型 checkpoint 目录')
     parser.add_argument('--scenario_path', type=str, default=None,
-                       help='场景数据路径（默认从 REALTALK 推断）')
+                       help='场景数据路径（默认从 LovinkQuestionnaire 推断）')
     parser.add_argument('--ablation_config', type=str, required=True,
                        choices=['profile_and_history_and_context', 'profile_and_history', 
                                'profile_and_context', 'history_and_context', 
@@ -1350,8 +1251,8 @@ def main():
     parser.add_argument('--max_model_len', type=int, default=8192,
                        help='最大模型序列长度（默认: 8192）')
     
-    parser.add_argument('--temperature', type=float, default=1.0,
-                       help='采样温度（默认: 1.0，REALTALK 推荐 1.0-1.2）')
+    parser.add_argument('--temperature', type=float, default=0.9,
+                       help='采样温度（默认: 0.9，LovinkQuestionnaire 推荐 0.8-1.0）')
     parser.add_argument('--top_p', type=float, default=0.9,
                        help='Top-p 采样（默认: 0.9）')
     parser.add_argument('--top_k', type=int, default=50,
@@ -1372,7 +1273,7 @@ def main():
     
     # 推断 scenario_path
     if args.scenario_path is None:
-        args.scenario_path = '/mnt/parallel/GIDigitalTwinBench/RealSelf/REALTALK'
+        args.scenario_path = '/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkQuestionnaire'
         print(f"自动推断数据路径: {args.scenario_path}")
     
     # 从 ablation_config 推断配置

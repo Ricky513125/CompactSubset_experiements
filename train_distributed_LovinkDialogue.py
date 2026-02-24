@@ -553,8 +553,9 @@ def build_simple_training_prompt(
                 dialogue_parts.append(f"{label}: {content}")
             return "\n".join(dialogue_parts)
         
-        # 估算 target 的 token 数
-        target_tokens = len(tokenizer.encode(next_question, add_special_tokens=False))
+        # 估算 target 的 token 数（包括 [ANSWER] 和 [/ANSWER] 标签）
+        target_answer_with_tags = f"[ANSWER]\n{next_question}\n[/ANSWER]"
+        target_tokens = len(tokenizer.encode(target_answer_with_tags, add_special_tokens=False))
         
         # 预留空间：target + min_target_tokens 的缓冲 + 特殊 tokens
         reserved_tokens = target_tokens + min_target_tokens + 50  # 50 for special tokens
@@ -623,29 +624,36 @@ def build_simple_training_prompt(
         
         system_parts.append("\n".join(dialogue_parts))
     
-    # 4. 预测指令
+    # 4. 预测指令（中文提示）
     if English_flag:
-        system_parts.append("\nPredict the user's next message:")
+        system_parts.append("\n预测用户的下一条消息：")
+        system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
     elif Japanese_flag:
-        system_parts.append("\nユーザーの次のメッセージを予測する：")
+        system_parts.append("\n预测用户的下一条消息：")
+        system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
     else:
         if task_text == "基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式":
             system_parts.append("\n预测用户针对该问题的回复：")
+            system_parts.append("注意：请直接给出用户的回答，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
         elif task_text and "MovieLens" in task_text:
             system_parts.append("\n预测用户对该电影的评分：")
+            system_parts.append("注意：请直接给出用户的评分，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
         elif task_text and "Reddit" in task_text:
-            system_parts.append("\nPredict the user's response to the comment:")
+            system_parts.append("\n预测用户对该评论的回复：")
+            system_parts.append("注意：请直接给出用户的回复，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
         elif task_text and "REALTALK" in task_text:
-            system_parts.append("\nPredict the user's next message:")
+            system_parts.append("\n预测用户的下一条消息：")
+            system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
         else:
-            system_parts.append("\n预测用户的下一条消息:")
+            system_parts.append("\n预测用户的下一条消息：")
+            system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
     
     # 组合成 system message
     system_content = "\n\n".join(system_parts)
     messages.append({"role": "system", "content": system_content})
     
-    # target_answer 就是 next_question
-    target_answer = next_question
+    # target_answer 用 [ANSWER] 和 [/ANSWER] 包裹 next_question（与训练时保持一致）
+    target_answer = f"[ANSWER]\n{next_question}\n[/ANSWER]"
     
     return messages, target_answer
 
@@ -1749,6 +1757,8 @@ def main():
     class CustomTrainer(Trainer):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
+            # 保存 tokenizer 引用（用于损失权重计算）
+            self.tokenizer = tokenizer
             # 创建训练进度日志文件
             if is_main_process:
                 self.progress_log_file = os.path.join(output_dir, "training_logs", "training_progress.txt")
@@ -1868,7 +1878,7 @@ def main():
                     )
                     logits = torch.clamp(logits, min=-50.0, max=50.0)
             
-            # 计算损失
+            # 计算损失（对 [ANSWER] 和 [/ANSWER] token 增加权重）
             if hasattr(outputs, 'loss') and outputs.loss is not None:
                 loss = outputs.loss
             elif labels is not None:
@@ -1879,14 +1889,58 @@ def main():
                         print(f"警告: [GPU {rank}] Step {self.state.global_step} 没有有效的labels")
                     loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
                 else:
-                    loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='mean')
                     shift_logits = logits[..., :-1, :].contiguous()
                     shift_labels = labels[..., 1:].contiguous()
                     
-                    loss = loss_fct(
+                    # 创建损失权重：对 [ANSWER] 和 [/ANSWER] token 增加权重
+                    # 获取 tokenizer 中的 [ANSWER] 和 [/ANSWER] 的所有 token IDs
+                    answer_start_token_ids = set()
+                    answer_end_token_ids = set()
+                    
+                    try:
+                        # 尝试获取 [ANSWER] 和 [/ANSWER] 的所有 token IDs
+                        if hasattr(self.tokenizer, 'encode'):
+                            # 编码标签（可能被编码为多个 token）
+                            answer_start_tokens = self.tokenizer.encode("[ANSWER]", add_special_tokens=False)
+                            answer_end_tokens = self.tokenizer.encode("[/ANSWER]", add_special_tokens=False)
+                            
+                            # 保存所有相关的 token IDs（不仅仅是第一个）
+                            if answer_start_tokens:
+                                answer_start_token_ids = set(answer_start_tokens)
+                            if answer_end_tokens:
+                                answer_end_token_ids = set(answer_end_tokens)
+                    except:
+                        pass
+                    
+                    # 创建权重张量（默认权重为 1.0）
+                    batch_size, seq_len = shift_labels.shape
+                    loss_weights = torch.ones_like(shift_labels, dtype=torch.float32)
+                    
+                    # 对 [ANSWER] 和 [/ANSWER] 的所有 token 增加权重（权重设为 3.0）
+                    if answer_start_token_ids:
+                        for token_id in answer_start_token_ids:
+                            loss_weights[shift_labels == token_id] = 3.0
+                    if answer_end_token_ids:
+                        for token_id in answer_end_token_ids:
+                            loss_weights[shift_labels == token_id] = 3.0
+                    
+                    # 使用加权损失
+                    loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
+                    per_token_loss = loss_fct(
                         shift_logits.view(-1, shift_logits.size(-1)),
                         shift_labels.view(-1)
                     )
+                    
+                    # 应用权重并计算平均损失
+                    per_token_loss = per_token_loss.view(batch_size, seq_len)
+                    valid_mask = (shift_labels != -100)
+                    weighted_loss = (per_token_loss * loss_weights * valid_mask.float()).sum()
+                    valid_count = (valid_mask.float() * loss_weights).sum()
+                    
+                    if valid_count > 0:
+                        loss = weighted_loss / valid_count
+                    else:
+                        loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
             else:
                 loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
             

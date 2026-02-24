@@ -155,6 +155,9 @@ def extract_movielens_samples(
     return all_samples
 
 
+# 移除分批处理函数，直接使用 add_history_to_samples_movielens
+
+
 def add_history_to_samples_movielens(
     all_samples: List[Dict[str, Any]],
     history_strategy: str = 'all_previous',
@@ -162,7 +165,7 @@ def add_history_to_samples_movielens(
     fixed_history_count: int = None
 ) -> List[Dict[str, Any]]:
     """
-    为 MovieLens 样本添加历史信息
+    为 MovieLens 样本添加历史信息（优化版：添加进度显示和性能优化）
     
     Args:
         all_samples: 所有训练样本
@@ -178,52 +181,70 @@ def add_history_to_samples_movielens(
     Returns:
         添加了历史信息的样本列表
     """
-    for sample in all_samples:
-        all_ratings = sample.get('all_ratings', [])
-        rating_index = sample.get('rating_index', 0)
-        
-        # 获取所有之前的评分
-        previous_ratings = all_ratings[:rating_index] if rating_index > 0 else []
-        
-        if not previous_ratings or history_strategy == 'none':
-            sample['history'] = []
-            continue
-        
-        # 根据策略选择历史
-        if history_strategy == 'all_previous':
-            selected_ratings = previous_ratings
-        
-        elif history_strategy == 'random':
-            # 随机选择一定比例
-            num_to_select = max(1, int(len(previous_ratings) * history_ratio))
-            selected_ratings = random.sample(previous_ratings, min(num_to_select, len(previous_ratings)))
-            # 保持时间顺序
-            selected_ratings = sorted(selected_ratings, key=lambda x: previous_ratings.index(x))
-        
-        elif history_strategy == 'fixed_ratio':
-            # 最近的固定比例
-            num_to_select = max(1, int(len(previous_ratings) * history_ratio))
-            selected_ratings = previous_ratings[-num_to_select:]
-        
-        elif history_strategy == 'fixed_count':
-            # 固定数量的最近评分
-            count = fixed_history_count if fixed_history_count else 10
-            selected_ratings = previous_ratings[-count:]
-        
-        else:
-            # 默认使用全部
-            selected_ratings = previous_ratings
-        
-        # 转换为历史格式
-        sample['history'] = [
-            {
-                'movie': r.get('continuation_prefix', '').rstrip(': '),
-                'rating': r.get('continuation', ''),
-                'timestamp': r.get('timestamp', '')
-            }
-            for r in selected_ratings
-        ]
+    total_samples = len(all_samples)
+    print(f"  开始处理 {total_samples} 个样本...")
     
+    # 优化：为 random 策略预先创建索引映射，避免重复调用 index()
+    for idx, sample in enumerate(all_samples):
+        try:
+            all_ratings = sample.get('all_ratings', [])
+            rating_index = sample.get('rating_index', 0)
+            
+            # 获取所有之前的评分
+            previous_ratings = all_ratings[:rating_index] if rating_index > 0 else []
+            
+            if not previous_ratings or history_strategy == 'none':
+                sample['history'] = []
+                # 每处理100000个样本打印一次进度
+                if (idx + 1) % 100000 == 0:
+                    print(f"  已处理 {idx + 1}/{total_samples} 个样本 ({(idx + 1) / total_samples * 100:.1f}%)")
+                continue
+            
+            # 根据策略选择历史
+            if history_strategy == 'all_previous':
+                selected_ratings = previous_ratings
+            
+            elif history_strategy == 'random':
+                # 随机选择一定比例
+                num_to_select = max(1, int(len(previous_ratings) * history_ratio))
+                # 优化：先获取索引，然后根据索引排序，避免重复调用 index()
+                indices = random.sample(range(len(previous_ratings)), min(num_to_select, len(previous_ratings)))
+                indices.sort()  # 保持时间顺序
+                selected_ratings = [previous_ratings[i] for i in indices]
+            
+            elif history_strategy == 'fixed_ratio':
+                # 最近的固定比例
+                num_to_select = max(1, int(len(previous_ratings) * history_ratio))
+                selected_ratings = previous_ratings[-num_to_select:]
+            
+            elif history_strategy == 'fixed_count':
+                # 固定数量的最近评分
+                count = fixed_history_count if fixed_history_count else 10
+                selected_ratings = previous_ratings[-count:]
+            
+            else:
+                # 默认使用全部
+                selected_ratings = previous_ratings
+            
+            # 转换为历史格式
+            sample['history'] = [
+                {
+                    'movie': r.get('continuation_prefix', '').rstrip(': '),
+                    'rating': r.get('continuation', ''),
+                    'timestamp': r.get('timestamp', '')
+                }
+                for r in selected_ratings
+            ]
+        except Exception as e:
+            # 如果处理单个样本时出错，记录错误但继续处理
+            print(f"  警告: 处理样本 {idx} 时出错: {e}")
+            sample['history'] = []  # 设置为空历史，避免后续错误
+        
+        # 每处理100000个样本打印一次进度
+        if (idx + 1) % 100000 == 0:
+            print(f"  已处理 {idx + 1}/{total_samples} 个样本 ({(idx + 1) / total_samples * 100:.1f}%)")
+    
+    print(f"  ✓ 历史信息添加完成")
     return all_samples
 
 
@@ -402,14 +423,10 @@ def main():
                        help='每个用户最多保留多少个样本（random_targets模式下表示预测目标数，其他模式下直接采样）')
     parser.add_argument('--sample_seed', type=int, default=42,
                        help='采样随机种子（默认：42，保证可复现）')
-    
-    # 新增：分批训练参数
-    parser.add_argument('--data_batch_size', type=int, default=None,
-                       help='每个批次的数据量（用于分批训练，避免一次性加载所有数据）')
-    parser.add_argument('--data_batch_index', type=int, default=None,
-                       help='当前要训练的批次索引（从0开始，如果指定则只训练该批次）')
     parser.add_argument('--load_from_saved', action='store_true',
                        help='从已保存的JSON文件加载数据（避免重复处理原始数据）')
+    parser.add_argument('--skip_save_processed_data', action='store_true',
+                       help='跳过保存处理后的数据（如果数据量很大，保存可能很慢）')
     
     args = parser.parse_args()
     
@@ -517,6 +534,7 @@ def main():
     if args.load_from_saved and os.path.exists(all_data_path):
         if is_main_process:
             print(f"从已保存的文件加载数据: {all_data_path}")
+        
         try:
             with open(all_data_path, 'r', encoding='utf-8') as f:
                 all_samples = json.load(f)
@@ -606,87 +624,66 @@ def main():
         if is_main_process:
             print("✓ 使用已处理的数据，跳过采样和历史处理步骤")
     
-    # 分批处理：如果指定了批次大小和索引，只使用该批次的数据
-    total_batches = None
-    if args.data_batch_size is not None and args.data_batch_index is not None:
-        if is_main_process:
-            print(f"\n分批训练模式:")
-            print(f"  批次大小: {args.data_batch_size}")
-            print(f"  当前批次索引: {args.data_batch_index}")
-            print(f"  总样本数: {len(all_samples)}")
-        
-        # 计算批次范围
-        start_idx = args.data_batch_index * args.data_batch_size
-        end_idx = min(start_idx + args.data_batch_size, len(all_samples))
-        total_batches = (len(all_samples) + args.data_batch_size - 1) // args.data_batch_size
-        
-        if start_idx >= len(all_samples):
-            if is_main_process:
-                print(f"错误: 批次索引 {args.data_batch_index} 超出范围（总共 {total_batches} 个批次）")
-            cleanup_distributed()
-            return
-        
-        # 只使用当前批次的数据
-        batch_samples = all_samples[start_idx:end_idx]
-        if is_main_process:
-            print(f"  批次范围: [{start_idx}, {end_idx})")
-            print(f"  当前批次样本数: {len(batch_samples)}")
-            print(f"  总批次数: {total_batches}")
-        
-        all_samples = batch_samples
+    # 移除所有分批处理逻辑，直接使用全部数据
     
     # 划分训练集和验证集
     train_samples, val_samples = split_train_val(all_samples, args.val_ratio)
     if is_main_process:
         print(f"\n训练集: {len(train_samples)} 个样本")
         print(f"验证集: {len(val_samples)} 个样本")
-        if args.data_batch_size is not None and args.data_batch_index is not None:
-            print(f"（这是第 {args.data_batch_index + 1}/{total_batches} 批次的数据）")
         print(f"每个GPU实际处理约 {len(train_samples) // world_size} 个训练样本")
     
-    # 保存处理后的数据到当前目录
-    if is_main_process:
+    # 保存处理后的数据到当前目录（优化：添加同步点避免NCCL超时）
+    # 先同步，确保所有进程都完成了数据处理
+    if world_size > 1:
+        dist.barrier()
+    
+    # 如果指定跳过保存，直接继续
+    if args.skip_save_processed_data:
+        if is_main_process:
+            print("\n跳过保存处理后的数据（使用 --skip_save_processed_data）")
+    elif is_main_process:
         current_dir = os.getcwd()
-        
-        # 如果是分批模式，使用批次特定的文件名
-        if args.data_batch_size is not None and args.data_batch_index is not None:
-            train_data_path = os.path.join(current_dir, f"train_samples_batch{args.data_batch_index}.json")
-            val_data_path = os.path.join(current_dir, f"val_samples_batch{args.data_batch_index}.json")
-            all_data_path = os.path.join(current_dir, "all_samples.json")  # 只在第一次保存全部数据
-        else:
-            train_data_path = os.path.join(current_dir, "train_samples.json")
-            val_data_path = os.path.join(current_dir, "val_samples.json")
-            all_data_path = os.path.join(current_dir, "all_samples.json")
+        train_data_path = os.path.join(current_dir, "train_samples.json")
+        val_data_path = os.path.join(current_dir, "val_samples.json")
+        all_data_path = os.path.join(current_dir, "all_samples.json")
         
         print(f"\n保存处理后的数据到当前目录: {current_dir}")
         
-        # 保存训练集
+        # 保存训练集（对于大数据集，这可能需要一些时间）
+        # 优化：不格式化JSON以加快保存速度
         try:
+            print(f"保存训练集（{len(train_samples)} 个样本，可能需要一些时间）...")
             with open(train_data_path, 'w', encoding='utf-8') as f:
-                json.dump(train_samples, f, indent=2, ensure_ascii=False)
-            print(f"✓ 训练集已保存: {train_data_path} ({len(train_samples)} 个样本)")
+                json.dump(train_samples, f, ensure_ascii=False)  # 移除 indent=2 以加快速度
+            print(f"✓ 训练集已保存: {train_data_path}")
         except Exception as e:
             print(f"⚠ 保存训练集失败: {e}")
         
         # 保存验证集
         if val_samples:
             try:
+                print(f"保存验证集（{len(val_samples)} 个样本）...")
                 with open(val_data_path, 'w', encoding='utf-8') as f:
-                    json.dump(val_samples, f, indent=2, ensure_ascii=False)
-                print(f"✓ 验证集已保存: {val_data_path} ({len(val_samples)} 个样本)")
+                    json.dump(val_samples, f, ensure_ascii=False)  # 移除 indent=2 以加快速度
+                print(f"✓ 验证集已保存: {val_data_path}")
             except Exception as e:
                 print(f"⚠ 保存验证集失败: {e}")
         
-        # 保存所有样本（只在非分批模式或第一次运行时保存）
-        if args.data_batch_size is None or args.data_batch_index == 0:
-            try:
-                with open(all_data_path, 'w', encoding='utf-8') as f:
-                    json.dump(all_samples, f, indent=2, ensure_ascii=False)
-                print(f"✓ 所有样本已保存: {all_data_path} ({len(all_samples)} 个样本)")
-            except Exception as e:
-                print(f"⚠ 保存所有样本失败: {e}")
+        # 保存所有样本
+        try:
+            print(f"保存所有样本（{len(all_samples)} 个样本，可能需要一些时间）...")
+            with open(all_data_path, 'w', encoding='utf-8') as f:
+                json.dump(all_samples, f, ensure_ascii=False)  # 移除 indent=2 以加快速度
+            print(f"✓ 所有样本已保存: {all_data_path}")
+        except Exception as e:
+            print(f"⚠ 保存所有样本失败: {e}")
         
         print()
+    
+    # 同步：确保主进程保存完成后，其他进程才继续
+    if world_size > 1:
+        dist.barrier()
     
     # 获取模型配置
     model_config = config['model']
@@ -694,19 +691,11 @@ def main():
     # 设置输出目录
     if args.output_dir:
         output_dir = args.output_dir
-        # 如果是分批训练，在输出目录中添加批次信息
-        if args.data_batch_size is not None and args.data_batch_index is not None:
-            output_dir = f"{output_dir}_batch{args.data_batch_index}"
     else:
         checkpoint_dir = model_config['checkpoint_dir']
         dataset_name = os.path.basename(os.path.dirname(train_path))
         flash_suffix = "flashattn2" if use_flash_attn else "standard"
-        base_output_dir = os.path.join(checkpoint_dir, f"{dataset_name}_ablation_{config_name}_{flash_suffix}_dynamic_distributed")
-        # 如果是分批训练，在输出目录中添加批次信息
-        if args.data_batch_size is not None and args.data_batch_index is not None:
-            output_dir = f"{base_output_dir}_batch{args.data_batch_index}"
-        else:
-            output_dir = base_output_dir
+        output_dir = os.path.join(checkpoint_dir, f"{dataset_name}_ablation_{config_name}_{flash_suffix}_dynamic_distributed")
     
     # 只在主进程创建目录和日志文件
     training_log_path = None
@@ -973,8 +962,17 @@ def main():
                 
                 # 显示前5条历史评分
                 for j, hist_item in enumerate(history[:5]):
-                    print(f"  {j+1}. {hist_item[:80]}...")
-                    log_file.write(f"  {j+1}. {hist_item}\n")
+                    # MovieLens 历史数据是字典格式，需要格式化显示
+                    if isinstance(hist_item, dict):
+                        hist_str = f"电影: {hist_item.get('movie', 'N/A')}, 评分: {hist_item.get('rating', 'N/A')}, 时间: {hist_item.get('timestamp', 'N/A')}"
+                    else:
+                        hist_str = str(hist_item)
+                    
+                    # 控制台显示截断版本
+                    display_str = hist_str[:80] + "..." if len(hist_str) > 80 else hist_str
+                    print(f"  {j+1}. {display_str}")
+                    # 日志文件显示完整内容
+                    log_file.write(f"  {j+1}. {hist_str}\n")
                 
                 if len(history) > 5:
                     print(f"  ... (还有 {len(history) - 5} 条历史)")
@@ -1102,6 +1100,8 @@ def main():
     class CustomTrainer(Trainer):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
+            # 保存 tokenizer 引用（用于损失权重计算）
+            self.tokenizer = tokenizer
             # 创建训练进度日志文件
             if is_main_process:
                 self.progress_log_file = os.path.join(output_dir, "training_logs", "training_progress.txt")
@@ -1221,7 +1221,7 @@ def main():
                     )
                     logits = torch.clamp(logits, min=-50.0, max=50.0)
             
-            # 计算损失
+            # 计算损失（对 [ANSWER] 和 [/ANSWER] token 增加权重）
             if hasattr(outputs, 'loss') and outputs.loss is not None:
                 loss = outputs.loss
             elif labels is not None:
@@ -1232,14 +1232,58 @@ def main():
                         print(f"警告: [GPU {rank}] Step {self.state.global_step} 没有有效的labels")
                     loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
                 else:
-                    loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='mean')
                     shift_logits = logits[..., :-1, :].contiguous()
                     shift_labels = labels[..., 1:].contiguous()
                     
-                    loss = loss_fct(
+                    # 创建损失权重：对 [ANSWER] 和 [/ANSWER] token 增加权重
+                    # 获取 tokenizer 中的 [ANSWER] 和 [/ANSWER] 的所有 token IDs
+                    answer_start_token_ids = set()
+                    answer_end_token_ids = set()
+                    
+                    try:
+                        # 尝试获取 [ANSWER] 和 [/ANSWER] 的所有 token IDs
+                        if hasattr(self.tokenizer, 'encode'):
+                            # 编码标签（可能被编码为多个 token）
+                            answer_start_tokens = self.tokenizer.encode("[ANSWER]", add_special_tokens=False)
+                            answer_end_tokens = self.tokenizer.encode("[/ANSWER]", add_special_tokens=False)
+                            
+                            # 保存所有相关的 token IDs（不仅仅是第一个）
+                            if answer_start_tokens:
+                                answer_start_token_ids = set(answer_start_tokens)
+                            if answer_end_tokens:
+                                answer_end_token_ids = set(answer_end_tokens)
+                    except:
+                        pass
+                    
+                    # 创建权重张量（默认权重为 1.0）
+                    batch_size, seq_len = shift_labels.shape
+                    loss_weights = torch.ones_like(shift_labels, dtype=torch.float32)
+                    
+                    # 对 [ANSWER] 和 [/ANSWER] 的所有 token 增加权重（权重设为 3.0）
+                    if answer_start_token_ids:
+                        for token_id in answer_start_token_ids:
+                            loss_weights[shift_labels == token_id] = 3.0
+                    if answer_end_token_ids:
+                        for token_id in answer_end_token_ids:
+                            loss_weights[shift_labels == token_id] = 3.0
+                    
+                    # 使用加权损失
+                    loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
+                    per_token_loss = loss_fct(
                         shift_logits.view(-1, shift_logits.size(-1)),
                         shift_labels.view(-1)
                     )
+                    
+                    # 应用权重并计算平均损失
+                    per_token_loss = per_token_loss.view(batch_size, seq_len)
+                    valid_mask = (shift_labels != -100)
+                    weighted_loss = (per_token_loss * loss_weights * valid_mask.float()).sum()
+                    valid_count = (valid_mask.float() * loss_weights).sum()
+                    
+                    if valid_count > 0:
+                        loss = weighted_loss / valid_count
+                    else:
+                        loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
             else:
                 loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
             
@@ -1328,7 +1372,14 @@ def main():
                     f.write("【历史信息 History】\n")
                     history = raw_sample['history']
                     for hist_idx, hist_item in enumerate(history[:3], 1):  # 只显示前3条
-                        f.write(f"  历史{hist_idx}: {hist_item[:100]}...\n")
+                        # MovieLens 历史数据是字典格式，需要格式化显示
+                        if isinstance(hist_item, dict):
+                            hist_str = f"电影: {hist_item.get('movie', 'N/A')}, 评分: {hist_item.get('rating', 'N/A')}, 时间: {hist_item.get('timestamp', 'N/A')}"
+                        else:
+                            hist_str = str(hist_item)
+                        # 截断显示
+                        display_str = hist_str[:100] + "..." if len(hist_str) > 100 else hist_str
+                        f.write(f"  历史{hist_idx}: {display_str}\n")
                     if len(history) > 3:
                         f.write(f"  ... (还有 {len(history) - 3} 条历史)\n")
                     f.write("\n")
@@ -1547,4 +1598,15 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n用户中断训练")
+        cleanup_distributed()
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n\n训练过程中发生错误: {e}")
+        import traceback
+        traceback.print_exc()
+        cleanup_distributed()
+        sys.exit(1)

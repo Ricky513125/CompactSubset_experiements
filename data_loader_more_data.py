@@ -744,8 +744,15 @@ def build_simple_training_prompt(
     # 2.5. HISTORY 部分 - 历史信息（在 TASK 和 RECENT_DIALOGUE 之间）
     if use_history and history and len(history) > 0:
         history_parts = ["[HISTORY]"]
-        # 限制历史条目数量，避免过长
-        max_history_items = 15
+        # 限制历史条目数量，避免过长（MovieLens可以使用更多历史）
+        # 检查是否是MovieLens数据（通过检查历史项格式）
+        is_movielens = False
+        if history and isinstance(history[0], dict):
+            # MovieLens格式：{'movie': ..., 'rating': ..., 'timestamp': ...}
+            if 'movie' in history[0] and 'rating' in history[0]:
+                is_movielens = True
+        
+        max_history_items = 50 if is_movielens else 15  # MovieLens允许50条历史
         history_to_use = history[:max_history_items] if len(history) > max_history_items else history
         
         for i, item in enumerate(history_to_use, 1):
@@ -753,7 +760,18 @@ def build_simple_training_prompt(
             if isinstance(item, str):
                 content = item
             elif isinstance(item, dict):
-                content = item.get('next_question', '') or item.get('content', '') or item.get('continuation', '')
+                # MovieLens格式：{'movie': ..., 'rating': ..., 'timestamp': ...}
+                if 'movie' in item and 'rating' in item:
+                    movie = item.get('movie', 'Unknown')
+                    rating = item.get('rating', '')
+                    timestamp = item.get('timestamp', '')
+                    # 格式化MovieLens历史：电影名: 评分 (时间戳)
+                    content = f"{movie}: {rating}"
+                    if timestamp:
+                        content += f" ({timestamp})"
+                else:
+                    # 其他格式的历史字典
+                    content = item.get('next_question', '') or item.get('content', '') or item.get('continuation', '')
             else:
                 content = str(item)
             
@@ -786,8 +804,9 @@ def build_simple_training_prompt(
                 dialogue_parts.append(f"{label}: {content}")
             return "\n".join(dialogue_parts)
         
-        # 估算 target 的 token 数
-        target_tokens = len(tokenizer.encode(next_question, add_special_tokens=False))
+        # 估算 target 的 token 数（包括 [ANSWER] 和 [/ANSWER] 标签）
+        target_answer_with_tags = f"[ANSWER]\n{next_question}\n[/ANSWER]"
+        target_tokens = len(tokenizer.encode(target_answer_with_tags, add_special_tokens=False))
         
         # 预留空间：target + min_target_tokens 的缓冲 + 特殊 tokens
         reserved_tokens = target_tokens + min_target_tokens + 50  # 50 for special tokens
@@ -857,6 +876,10 @@ def build_simple_training_prompt(
         system_parts.append("\n".join(dialogue_parts))
     
     # 4. 预测指令
+    # 检查是否是特定数据集（通过任务描述识别）
+    is_dmsc = (task_description == "基于用户在豆瓣上的历史影评数据，模拟该用户的影评风格和行为模式")
+    is_movielens = (task_description and "MovieLens" in task_description)
+    
     if English_flag:
         system_parts.append("\nPredict the user's next message:")
     elif Japanese_flag:
@@ -864,20 +887,28 @@ def build_simple_training_prompt(
     else:
         if task_text == "基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式":
             system_parts.append("\n预测用户针对该问题的回复：")
-        elif task_text and "MovieLens" in task_text:
+        elif is_movielens:
+            # MovieLens 数据集：预测用户对该电影的评分
             system_parts.append("\n预测用户对该电影的评分：")
+            system_parts.append("注意：请直接给出用户对该电影的评分，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
         elif task_text and "Reddit" in task_text:
             system_parts.append("\nPredict the user's response to the comment:")
         elif task_text and "REALTALK" in task_text:
             system_parts.append("\nPredict the user's next message:")
         else:
-            system_parts.append("\n预测用户的下一条消息:")
+            # 默认情况（包括 DMSC 和其他中文数据集）
+            if is_dmsc:
+                # DMSC 数据集：预测用户对该电影的评价
+                system_parts.append("\n预测用户对该电影的评价：")
+                system_parts.append("注意：请直接给出用户对该电影的评价，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
+            else:
+                system_parts.append("\n预测用户的下一条消息：")
     
     # 组合成 system message
     system_content = "\n\n".join(system_parts)
     messages.append({"role": "system", "content": system_content})
     
-    # target_answer 用 [ANSWER] 和 [/ANSWER] 包裹 next_question
+    # target_answer 用 [ANSWER] 和 [/ANSWER] 包裹 next_question（与训练时保持一致）
     target_answer = f"[ANSWER]\n{next_question}\n[/ANSWER]"
     
     return messages, target_answer

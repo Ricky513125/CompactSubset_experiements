@@ -72,11 +72,33 @@ def split_train_val(samples, val_ratio=0.1, seed=42):
 
 def add_history_to_samples(train_samples, all_samples):
     """为每个样本添加历史信息（只包含用户的问题，不包含assistant内容）"""
+    # 优化：先按用户分组，避免重复遍历整个all_samples列表
+    from collections import defaultdict
+    
+    print(f"  开始优化历史信息添加（总样本数: {len(all_samples)}）...")
+    
+    # 按用户分组所有样本（O(n) 复杂度）
+    user_samples_map = defaultdict(list)
+    for sample in all_samples:
+        user_hash = sample.get('user_hash', 'unknown')
+        user_samples_map[user_hash].append(sample)
+    
+    print(f"  已按用户分组，共 {len(user_samples_map)} 个用户")
+    
+    # 为每个样本添加历史信息
     samples_with_history = []
-    for sample in train_samples:
+    total_samples = len(train_samples)
+    
+    for idx, sample in enumerate(train_samples):
         user_hash = sample['user_hash']
+        
+        # 只遍历该用户的样本，而不是所有样本
+        # 这大大减少了遍历次数：从 O(n²) 降低到 O(n * avg_samples_per_user)
+        user_samples = user_samples_map.get(user_hash, [])
+        
+        # 使用优化版本：直接在该用户的样本中查找历史
         history = get_user_only_history(
-            all_samples, 
+            user_samples,  # 只传入该用户的样本，而不是所有样本
             user_hash,
             current_sample=sample,
             current_context=sample.get('context'),
@@ -85,6 +107,12 @@ def add_history_to_samples(train_samples, all_samples):
         )
         sample['history'] = history
         samples_with_history.append(sample)
+        
+        # 每处理10000个样本打印一次进度
+        if (idx + 1) % 10000 == 0:
+            print(f"  已处理 {idx + 1}/{total_samples} 个样本 ({(idx + 1) / total_samples * 100:.1f}%)")
+    
+    print(f"  ✓ 历史信息添加完成")
     return samples_with_history
 
 
@@ -93,7 +121,7 @@ class DynamicPaddingDataset(Dataset):
     优化版数据集：不做padding，返回原始长度的tensor
     padding将在collate_fn中动态进行
     """
-    def __init__(self, samples, tokenizer, max_length=32768, use_profile=True, use_history=True, use_context=True, verbose=False, use_detailed_template=True, max_context_turns=15, template_filename=None, require_token_type_ids=None):
+    def __init__(self, samples, tokenizer, max_length=32768, use_profile=True, use_history=True, use_context=True, verbose=False, use_detailed_template=True, max_context_turns=15, template_filename=None, require_token_type_ids=None, custom_prompt_builder=None):
         # 使用绝对路径导入，确保使用当前目录的模块
         import sys
         from pathlib import Path
@@ -101,23 +129,27 @@ class DynamicPaddingDataset(Dataset):
         if current_dir not in sys.path:
             sys.path.insert(0, current_dir)
         
+        # ✅ 优先使用外部传入的 prompt 构建函数（用于特殊数据集，如问卷）
+        if custom_prompt_builder is not None:
+            print("✅ 使用外部传入的自定义 Prompt 构建函数")
+            self.build_training_prompt = custom_prompt_builder
         # ✅ 根据 use_detailed_template 选择 prompt 构建函数
-        if use_detailed_template:
+        elif use_detailed_template:
             # 使用详细模板（标准 markdown 格式，使用 {VAR_NAME} 占位符）
             from prompt_builder import build_training_prompt
             print("使用详细 Prompt 模板 (prompt_builder)")
             self.build_training_prompt = build_training_prompt
         else:
             # 使用简短模板
-            # 优先尝试从 data_loader.py 导入（新版本，只预测 continuation）
-            # 如果失败，则从 data_loader_more_data.py 导入（旧版本，数据扩充）
+            # 优先使用 data_loader_more_data.py（包含 [ANSWER] 标签，与推理脚本一致）
+            # 如果失败，则从 data_loader.py 导入（备用版本）
             try:
-                from data_loader import build_simple_training_prompt as build_training_prompt
-                print("✅ 使用简短 Prompt 模板 (data_loader.build_simple_training_prompt - 只预测continuation)")
+                from data_loader_more_data import build_simple_training_prompt as build_training_prompt
+                print("✅ 使用简短 Prompt 模板 (data_loader_more_data.build_simple_training_prompt - 包含 [ANSWER] 标签)")
                 self.build_training_prompt = build_training_prompt
             except ImportError:
-                from data_loader_more_data import build_simple_training_prompt as build_training_prompt
-                print("✅ 使用简短 Prompt 模板 (data_loader_more_data.build_simple_training_prompt)")
+                from data_loader import build_simple_training_prompt as build_training_prompt
+                print("⚠️  使用简短 Prompt 模板 (data_loader.build_simple_training_prompt - 备用版本，不包含 [ANSWER] 标签)")
                 self.build_training_prompt = build_training_prompt
         
         self.samples = samples

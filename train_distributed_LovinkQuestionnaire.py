@@ -547,6 +547,7 @@ def main():
         print(f"Prompt 风格: {args.prompt_style}")
         if args.prompt_style == 'simple':
             print("   使用简洁标签格式（[USER_PROFILE] [DIM_XXX=score] ...）")
+            print("   使用专门的问卷 Prompt 构建函数 (data_loader_lovink_questionnaire)")
         elif args.prompt_style == 'detailed':
             if template_filename:
                 print(f"   使用详细模板: {template_filename} (标准 {{VAR_NAME}} 格式)")
@@ -554,6 +555,9 @@ def main():
                 print("   使用详细模板（默认顺序查找）")
         elif args.prompt_style == 'lovink':
             print("   使用 Lovink 风格模板")
+    
+    # ✅ 对于问卷数据，使用专门的 prompt 构建函数
+    from data_loader_lovink_questionnaire import build_simple_training_prompt as questionnaire_prompt_builder
     
     train_dataset = DynamicPaddingDataset(
         samples=train_samples,
@@ -564,7 +568,8 @@ def main():
         use_context=use_context,
         verbose=is_main_process,  # 只在主进程输出详细日志
         use_detailed_template=use_detailed_template,
-        template_filename=template_filename
+        template_filename=template_filename,
+        custom_prompt_builder=questionnaire_prompt_builder if not use_detailed_template else None  # ✅ 传入问卷专用函数
     )
     
     val_dataset = None
@@ -579,7 +584,8 @@ def main():
             use_history=use_history,
             use_context=use_context,
             use_detailed_template=use_detailed_template,
-            template_filename=template_filename
+            template_filename=template_filename,
+            custom_prompt_builder=questionnaire_prompt_builder if not use_detailed_template else None  # ✅ 传入问卷专用函数
         )
     
     # 数据整理器（使用动态Padding版本）
@@ -614,34 +620,31 @@ def main():
                 log_file.write(f"样本 {i+1}\n")
                 log_file.write(f"{'=' * 80}\n\n")
                 
-                # 显示角色映射的context
-                context_info = f"Context ({len(sample['context'])}轮):"
+                # ✅ 对于问卷数据，context 存储的是"问题"，不是对话
+                context_info = f"问卷问题 ({len(sample['context'])}个):"
                 print(context_info)
                 log_file.write(context_info + "\n")
                 
                 for j, turn in enumerate(sample['context']):
-                    role = turn['role']
-                    content = turn['content']
-                    role_desc = "user(对话者)" if role == "user" else "assistant(目标用户)"
+                    content = turn.get('content', '')
                     
-                    # 控制台只显示前5轮，且截断
+                    # 控制台只显示前5个问题，且截断
                     if j < 5:
-                        print(f"  {j+1}. {role_desc:25s}: {content[:60]}...")
+                        print(f"  问题{j+1}: {content[:80]}...")
                     
                     # 日志文件显示完整内容
-                    log_file.write(f"  {j+1}. {role_desc}:\n")
+                    log_file.write(f"  问题{j+1}:\n")
                     log_file.write(f"     {content}\n\n")
                 
                 if len(sample['context']) > 5:
-                    print(f"  ... (还有 {len(sample['context']) - 5} 轮)")
+                    print(f"  ... (还有 {len(sample['context']) - 5} 个问题)")
                 
-                # 显示要预测的target
+                # ✅ 显示目标答案（用户对问题的回答）
                 target = sample['next_question']
-                print(f"\nTarget (模型要生成的):")
-                print(f"  assistant(目标用户): {target[:100]}...")
+                print(f"\nTarget (用户对问题的回答):")
+                print(f"  {target[:100]}...")
                 
-                log_file.write(f"\nTarget (模型要生成的):\n")
-                log_file.write(f"  assistant(目标用户):\n")
+                log_file.write(f"\nTarget (用户对问题的回答):\n")
                 log_file.write(f"     {target}\n\n")
                 
                 # 显示profile信息
@@ -871,7 +874,7 @@ def main():
                     )
                     logits = torch.clamp(logits, min=-50.0, max=50.0)
             
-            # 计算损失
+            # 计算损失（对 [ANSWER]...[/ANSWER] 之间的 tokens 增加权重 3）
             if hasattr(outputs, 'loss') and outputs.loss is not None:
                 loss = outputs.loss
             elif labels is not None:
@@ -882,14 +885,70 @@ def main():
                         print(f"警告: [GPU {rank}] Step {self.state.global_step} 没有有效的labels")
                     loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
                 else:
-                    loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='mean')
                     shift_logits = logits[..., :-1, :].contiguous()
                     shift_labels = labels[..., 1:].contiguous()
                     
-                    loss = loss_fct(
+                    # 获取 [ANSWER] 和 [/ANSWER] 的所有 token IDs
+                    answer_start_token_ids = set()
+                    answer_end_token_ids = set()
+                    
+                    try:
+                        if hasattr(tokenizer, 'encode'):
+                            # 编码标签（可能被编码为多个 token）
+                            answer_start_tokens = tokenizer.encode("[ANSWER]", add_special_tokens=False)
+                            answer_end_tokens = tokenizer.encode("[/ANSWER]", add_special_tokens=False)
+                            
+                            if answer_start_tokens:
+                                answer_start_token_ids = set(answer_start_tokens)
+                            if answer_end_tokens:
+                                answer_end_token_ids = set(answer_end_tokens)
+                    except:
+                        pass
+                    
+                    # 创建权重张量（默认权重为 1.0）
+                    batch_size, seq_len = shift_labels.shape
+                    loss_weights = torch.ones_like(shift_labels, dtype=torch.float32, device=shift_labels.device)
+                    
+                    # 对每个样本，找到 [ANSWER] 和 [/ANSWER] 之间的所有 tokens，设置权重为 3.0
+                    if answer_start_token_ids and answer_end_token_ids:
+                        for batch_idx in range(batch_size):
+                            sample_labels = shift_labels[batch_idx]
+                            in_answer_region = False
+                            
+                            for pos in range(seq_len):
+                                token_id = sample_labels[pos].item()
+                                
+                                # 检查是否是 [ANSWER] 的开始 token
+                                if token_id in answer_start_token_ids:
+                                    in_answer_region = True
+                                    # [ANSWER] 标签本身也设置权重 3
+                                    loss_weights[batch_idx, pos] = 3.0
+                                # 检查是否是 [/ANSWER] 的结束 token
+                                elif token_id in answer_end_token_ids:
+                                    # [/ANSWER] 标签本身也设置权重 3
+                                    loss_weights[batch_idx, pos] = 3.0
+                                    in_answer_region = False
+                                # 如果在 [ANSWER] 和 [/ANSWER] 之间，设置权重 3
+                                elif in_answer_region and sample_labels[pos] != -100:
+                                    loss_weights[batch_idx, pos] = 3.0
+                    
+                    # 使用加权损失
+                    loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
+                    per_token_loss = loss_fct(
                         shift_logits.view(-1, shift_logits.size(-1)),
                         shift_labels.view(-1)
                     )
+                    
+                    # 应用权重并计算平均损失
+                    per_token_loss = per_token_loss.view(batch_size, seq_len)
+                    valid_mask = (shift_labels != -100)
+                    weighted_loss = (per_token_loss * loss_weights * valid_mask.float()).sum()
+                    valid_count = (valid_mask.float() * loss_weights).sum()
+                    
+                    if valid_count > 0:
+                        loss = weighted_loss / valid_count
+                    else:
+                        loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
             else:
                 loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
             
@@ -957,19 +1016,18 @@ def main():
                     f.write(f"User Profile: {profile.get('name', 'N/A')} (age: {profile.get('age', 'N/A')})\n")
                 f.write("\n")
                 
-                # 2. 对话上下文
-                f.write("【对话上下文 Context】\n")
+                # 2. 问卷问题（context存储的是问题，不是对话）
+                f.write("【问卷问题 Context】\n")
                 context = raw_sample.get('context', [])
-                for turn_idx, turn in enumerate(context[-5:], 1):  # 只显示最后5轮
-                    role = turn.get('role', 'unknown')
+                for turn_idx, turn in enumerate(context[-5:], 1):  # 只显示最后5个
                     content = turn.get('content', '')
-                    f.write(f"  轮次{turn_idx} [{role}]: {content}\n")
+                    f.write(f"  问题{turn_idx}: {content}\n")
                 if len(context) > 5:
-                    f.write(f"  ... (还有 {len(context) - 5} 轮对话)\n")
+                    f.write(f"  ... (还有 {len(context) - 5} 个问题)\n")
                 f.write("\n")
                 
-                # 3. 目标输出（模型要学习生成的内容）
-                f.write("【目标输出 Next Question】\n")
+                # 3. 用户对问题的回答（目标输出）
+                f.write("【用户对问题的回答 Next Question】\n")
                 next_question = raw_sample.get('next_question', '')
                 f.write(f"{next_question}\n\n")
                 
@@ -1071,12 +1129,12 @@ def main():
         
         context = first_sample.get('context', [])
         if context:
-            print(f"\nContext 最后一轮:")
-            last_turn = context[-1]
-            print(f"  [{last_turn.get('role', 'unknown')}]: {last_turn.get('content', '')[:150]}...")
+            print(f"\n问卷问题（最后一个）:")
+            last_question = context[-1]
+            print(f"  {last_question.get('content', '')[:150]}...")
         
         next_question = first_sample.get('next_question', '')
-        print(f"\nTarget (要学习生成的):")
+        print(f"\nTarget (用户对问题的回答):")
         print(f"  {next_question[:150]}...")
         
         first_encoded = train_dataset[0]

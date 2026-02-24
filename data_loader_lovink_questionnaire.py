@@ -474,21 +474,38 @@ def build_simple_training_prompt(
             system_parts.append("\n".join(history_parts))
     
     # 4. 当前问题（从 context 中提取并显示）
+    # 对于问卷数据，context 的最后一个项通常是当前要回答的问题
     current_question = None
     if use_context and context and len(context) > 0:
-        current_question = context[0].get('content', '')
+        # 优先使用最后一个 context 项（通常是当前问题）
+        last_turn = context[-1]
+        current_question = last_turn.get('content', '')
+        
+        # 如果最后一个为空，尝试从其他项中查找
+        if not current_question:
+            for turn in reversed(context):
+                content = turn.get('content', '')
+                if content and len(content.strip()) > 5:
+                    current_question = content
+                    break
+        
+        # 如果还是没找到，使用第一个 context 的 content
+        if not current_question and context[0].get('content'):
+            current_question = context[0].get('content', '')
+        
         if current_question:
             system_parts.append(f"[CURRENT_QUESTION]\n{current_question}")
     
-    # 5. 预测指令
+    # 5. 预测指令（与训练时保持一致，使用 [ANSWER] 标签）
     system_parts.append("\n预测用户针对该问题的回复：")
+    system_parts.append("注意：请直接给出用户的回答，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
     
     # 组合成 system message
     system_content = "\n\n".join(system_parts)
     messages.append({"role": "system", "content": system_content})
     
-    # target_answer 就是用户的回答
-    target_answer = next_question
+    # target_answer 用 [ANSWER] 和 [/ANSWER] 包裹 next_question（与训练时保持一致）
+    target_answer = f"[ANSWER]\n{next_question}\n[/ANSWER]"
     
     return messages, target_answer
 

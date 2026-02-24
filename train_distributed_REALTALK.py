@@ -833,22 +833,22 @@ def main():
                     shift_labels = labels[..., 1:].contiguous()
                     
                     # 创建损失权重：对 [ANSWER] 和 [/ANSWER] token 增加权重
-                    # 获取 tokenizer 中的 [ANSWER] 和 [/ANSWER] token IDs
-                    answer_start_token_id = None
-                    answer_end_token_id = None
+                    # 获取 tokenizer 中的 [ANSWER] 和 [/ANSWER] 的所有 token IDs
+                    answer_start_token_ids = set()
+                    answer_end_token_ids = set()
                     
                     try:
-                        # 尝试获取 [ANSWER] 和 [/ANSWER] 的 token ID
+                        # 尝试获取 [ANSWER] 和 [/ANSWER] 的所有 token IDs
                         if hasattr(self.tokenizer, 'encode'):
-                            # 编码单个 token（如果 tokenizer 支持）
+                            # 编码标签（可能被编码为多个 token）
                             answer_start_tokens = self.tokenizer.encode("[ANSWER]", add_special_tokens=False)
                             answer_end_tokens = self.tokenizer.encode("[/ANSWER]", add_special_tokens=False)
                             
-                            # 通常这些标签会被编码为多个 token，取第一个
+                            # 保存所有相关的 token IDs（不仅仅是第一个）
                             if answer_start_tokens:
-                                answer_start_token_id = answer_start_tokens[0]
+                                answer_start_token_ids = set(answer_start_tokens)
                             if answer_end_tokens:
-                                answer_end_token_id = answer_end_tokens[0]
+                                answer_end_token_ids = set(answer_end_tokens)
                     except:
                         pass
                     
@@ -856,11 +856,13 @@ def main():
                     batch_size, seq_len = shift_labels.shape
                     loss_weights = torch.ones_like(shift_labels, dtype=torch.float32)
                     
-                    # 对 [ANSWER] 和 [/ANSWER] token 增加权重（权重设为 3.0）
-                    if answer_start_token_id is not None:
-                        loss_weights[shift_labels == answer_start_token_id] = 3.0
-                    if answer_end_token_id is not None:
-                        loss_weights[shift_labels == answer_end_token_id] = 3.0
+                    # 对 [ANSWER] 和 [/ANSWER] 的所有 token 增加权重（权重设为 3.0）
+                    if answer_start_token_ids:
+                        for token_id in answer_start_token_ids:
+                            loss_weights[shift_labels == token_id] = 3.0
+                    if answer_end_token_ids:
+                        for token_id in answer_end_token_ids:
+                            loss_weights[shift_labels == token_id] = 3.0
                     
                     # 使用加权损失
                     loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
