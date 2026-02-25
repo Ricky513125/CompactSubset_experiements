@@ -1,0 +1,1402 @@
+
+import json
+import argparse
+import os
+import sys
+from pathlib import Path
+import random
+import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
+
+# 注释掉父目录路径，统一使用当前目录（prompt_improvement/Lovink/）下的文件
+# sys.path.insert(0, str(Path(__file__).parent.parent))
+from data_loader_more_data import load_train_data, extract_training_samples, get_user_only_history
+from train_with_dynamic_padding import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, CustomTrainerWithAnswerWeight
+# from data_loader_movielens_history import extract_movielens_samples, add_history_to_samples_movielens, sample_prediction_targets_per_user
+# 注意：上面的导入会失败，因为 data_loader_movielens_history.py 是空文件
+# 这些函数需要在本文件中实现
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    EarlyStoppingCallback,
+    TrainingArguments,
+    Trainer
+)
+from typing import List, Dict, Any, Optional
+import torch.nn as nn
+
+
+def check_flash_attention_support():
+    """检查系统是否支持 FlashAttention 2"""
+    try:
+        import flash_attn
+        flash_version = getattr(flash_attn, '__version__', 'unknown')
+        print(f"FlashAttention 已安装，版本: {flash_version}")
+        return True
+    except ImportError:
+        print("警告: FlashAttention 未安装")
+        return False
+
+
+def setup_distributed():
+    """初始化分布式训练环境"""
+    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ['WORLD_SIZE'])
+        local_rank = int(os.environ['LOCAL_RANK'])
+    elif 'SLURM_PROCID' in os.environ:
+        rank = int(os.environ['SLURM_PROCID'])
+        world_size = int(os.environ['SLURM_NTASKS'])
+        local_rank = rank % torch.cuda.device_count()
+    else:
+        print('警告: 未检测到分布式训练环境变量，使用单卡训练')
+        rank = 0
+        world_size = 1
+        local_rank = 0
+    
+    torch.cuda.set_device(local_rank)
+    
+    if world_size > 1:
+        dist.init_process_group(
+            backend='nccl',
+            init_method='env://',
+            world_size=world_size,
+            rank=rank
+        )
+    
+    return rank, world_size, local_rank
+
+
+def cleanup_distributed():
+    """清理分布式训练环境"""
+    if dist.is_initialized():
+        dist.destroy_process_group()
+
+
+def extract_movielens_samples(
+    raw_data: List[Dict[str, Any]], 
+    debug: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    将原始 MovieLens 数据转换为训练样本格式
+    
+    Args:
+        raw_data: 原始数据
+        debug: 是否输出调试信息
+        
+    Returns:
+        训练样本列表（按时间顺序）
+    """
+    all_samples = []
+    
+    for user_data in raw_data:
+        user_profile = user_data.get('user', {}).get('profile', {})
+        task_desc = user_data.get('task', {}).get('description', '')
+        
+        # 获取评分数据（应该已按时间排序）
+        task_collections = user_data.get('task', {}).get('task_behavior_collections', [])
+        
+        for collection in task_collections:
+            # MovieLens 数据的 type 可能是 'movie_rating' 或 'movie_review'
+            collection_type = collection.get('type', '')
+            if collection_type not in ['movie_rating', 'movie_review']:
+                continue
+            
+            ratings = collection.get('data', [])
+            
+            if debug:
+                print(f"处理用户: {user_profile.get('name', 'Unknown')}")
+                print(f"任务描述: {task_desc}")
+                print(f"评分总数: {len(ratings)}")
+            
+            # 记录当前用户生成的样本数
+            user_sample_count = 0
+            
+            # 为每条评分创建一个训练样本
+            for i, rating in enumerate(ratings):
+                # 之前的所有评分作为潜在历史
+                # （实际历史会在 add_history_to_samples_movielens 中添加）
+                
+                sample = {
+                    'user_profile': user_profile,
+                    'user_hash': user_profile.get('name', 'unknown'),
+                    'task_description': task_desc,
+                    
+                    # 历史评分（暂时为空，稍后添加）
+                    'history': [],
+                    
+                    # 当前电影信息
+                    'movie_info': rating.get('continuation_prefix', '').rstrip(': '),
+                    'timestamp': rating.get('timestamp', ''),
+                    
+                    # 目标：要预测的评分
+                    'next_question': rating.get('continuation', ''),
+                    
+                    # context保持空列表（兼容现有框架）
+                    'context': rating.get('context', []),
+                    
+                    # 保存完整评分列表和当前索引（用于后续添加历史）
+                    'all_ratings': ratings,
+                    'rating_index': i,
+                    
+                    # 原始数据（用于调试）
+                    'raw_rating': rating
+                }
+                
+                all_samples.append(sample)
+                user_sample_count += 1
+            
+            if debug:
+                print(f"生成样本数: {user_sample_count}")
+    
+    return all_samples
+
+
+# 移除分批处理函数，直接使用 add_history_to_samples_movielens
+
+
+def add_history_to_samples_movielens(
+    all_samples: List[Dict[str, Any]],
+    history_strategy: str = 'all_previous',
+    history_ratio: float = 1.0,
+    fixed_history_count: int = None
+) -> List[Dict[str, Any]]:
+    """
+    为 MovieLens 样本添加历史信息（优化版：添加进度显示和性能优化）
+    
+    Args:
+        all_samples: 所有训练样本
+        history_strategy: 历史策略
+            - 'all_previous': 所有之前的评分
+            - 'random': 随机选择一定比例的之前评分
+            - 'fixed_ratio': 固定比例的最近评分
+            - 'fixed_count': 固定数量的最近评分
+            - 'none': 不使用历史
+        history_ratio: 历史比例（用于 random 和 fixed_ratio 策略）
+        fixed_history_count: 固定历史数量（用于 fixed_count 策略）
+        
+    Returns:
+        添加了历史信息的样本列表
+    """
+    total_samples = len(all_samples)
+    print(f"  开始处理 {total_samples} 个样本...")
+    
+    # 优化：为 random 策略预先创建索引映射，避免重复调用 index()
+    for idx, sample in enumerate(all_samples):
+        try:
+            all_ratings = sample.get('all_ratings', [])
+            rating_index = sample.get('rating_index', 0)
+            
+            # 获取所有之前的评分
+            previous_ratings = all_ratings[:rating_index] if rating_index > 0 else []
+            
+            if not previous_ratings or history_strategy == 'none':
+                sample['history'] = []
+                # 每处理100000个样本打印一次进度
+                if (idx + 1) % 100000 == 0:
+                    print(f"  已处理 {idx + 1}/{total_samples} 个样本 ({(idx + 1) / total_samples * 100:.1f}%)")
+                continue
+            
+            # 根据策略选择历史
+            if history_strategy == 'all_previous':
+                selected_ratings = previous_ratings
+            
+            elif history_strategy == 'random':
+                # 随机选择一定比例
+                num_to_select = max(1, int(len(previous_ratings) * history_ratio))
+                # 优化：先获取索引，然后根据索引排序，避免重复调用 index()
+                indices = random.sample(range(len(previous_ratings)), min(num_to_select, len(previous_ratings)))
+                indices.sort()  # 保持时间顺序
+                selected_ratings = [previous_ratings[i] for i in indices]
+            
+            elif history_strategy == 'fixed_ratio':
+                # 最近的固定比例
+                num_to_select = max(1, int(len(previous_ratings) * history_ratio))
+                selected_ratings = previous_ratings[-num_to_select:]
+            
+            elif history_strategy == 'fixed_count':
+                # 固定数量的最近评分
+                count = fixed_history_count if fixed_history_count else 10
+                selected_ratings = previous_ratings[-count:]
+            
+            else:
+                # 默认使用全部
+                selected_ratings = previous_ratings
+            
+            # 转换为历史格式
+            sample['history'] = [
+                {
+                    'movie': r.get('continuation_prefix', '').rstrip(': '),
+                    'rating': r.get('continuation', ''),
+                    'timestamp': r.get('timestamp', '')
+                }
+                for r in selected_ratings
+            ]
+        except Exception as e:
+            # 如果处理单个样本时出错，记录错误但继续处理
+            print(f"  警告: 处理样本 {idx} 时出错: {e}")
+            sample['history'] = []  # 设置为空历史，避免后续错误
+        
+        # 每处理100000个样本打印一次进度
+        if (idx + 1) % 100000 == 0:
+            print(f"  已处理 {idx + 1}/{total_samples} 个样本 ({(idx + 1) / total_samples * 100:.1f}%)")
+    
+    print(f"  ✓ 历史信息添加完成")
+    return all_samples
+
+
+def sample_prediction_targets_per_user(
+    all_samples: List[Dict[str, Any]],
+    max_targets_per_user: int = 2,
+    random_seed: int = 42,
+    debug: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    random_targets 策略：每个用户随机选N个作为预测目标，其余都作历史
+    
+    Args:
+        all_samples: 所有训练样本
+        max_targets_per_user: 每个用户作为预测目标的样本数
+        random_seed: 随机种子
+        debug: 是否输出调试信息
+        
+    Returns:
+        采样后的样本列表（已添加历史）
+    """
+    random.seed(random_seed)
+    
+    # 按用户分组
+    user_samples = {}
+    for sample in all_samples:
+        user_hash = sample.get('user_hash', 'unknown')
+        if user_hash not in user_samples:
+            user_samples[user_hash] = []
+        user_samples[user_hash].append(sample)
+    
+    selected_samples = []
+    total_history_count = 0
+    
+    for user_hash, samples in user_samples.items():
+        if len(samples) <= max_targets_per_user:
+            # 样本数不够，全部使用
+            selected_samples.extend(samples)
+            continue
+        
+        # 随机选择N个作为预测目标
+        target_samples = random.sample(samples, max_targets_per_user)
+        
+        # 将其他所有样本作为这N个目标的历史
+        history_samples = [s for s in samples if s not in target_samples]
+        
+        # 为每个目标样本添加历史
+        for target in target_samples:
+            target_index = target.get('rating_index', 0)
+            all_ratings = target.get('all_ratings', [])
+            
+            # 只使用时间戳在目标之前的评分作为历史
+            previous_ratings = [all_ratings[i] for i in range(target_index)]
+            
+            target['history'] = [
+                {
+                    'movie': r.get('continuation_prefix', '').rstrip(': '),
+                    'rating': r.get('continuation', ''),
+                    'timestamp': r.get('timestamp', '')
+                }
+                for r in previous_ratings
+            ]
+            
+            total_history_count += len(target['history'])
+        
+        selected_samples.extend(target_samples)
+    
+    if debug:
+        print(f"random_targets 策略结果:")
+        print(f"  原始样本数: {len(all_samples)}")
+        print(f"  选中样本数: {len(selected_samples)}")
+        print(f"  平均历史数/样本: {total_history_count / len(selected_samples):.1f}")
+    
+    return selected_samples
+
+
+def sample_per_user(
+    all_samples: List[Dict[str, Any]],
+    max_samples_per_user: int = 2,
+    random_seed: int = 42
+) -> List[Dict[str, Any]]:
+    """
+    对每个用户的样本进行随机采样
+    
+    Args:
+        all_samples: 所有训练样本
+        max_samples_per_user: 每个用户最多保留多少个样本
+        random_seed: 随机种子（保证可复现）
+    
+    Returns:
+        采样后的样本列表
+    """
+    random.seed(random_seed)
+    
+    # 按用户分组
+    user_samples = {}
+    for sample in all_samples:
+        user_hash = sample.get('user_hash', sample.get('user_id', 'unknown'))
+        if user_hash not in user_samples:
+            user_samples[user_hash] = []
+        user_samples[user_hash].append(sample)
+    
+    # 对每个用户的样本进行采样
+    sampled_samples = []
+    for user_hash, samples in user_samples.items():
+        if len(samples) <= max_samples_per_user:
+            # 样本数不超过限制，全部保留
+            sampled_samples.extend(samples)
+        else:
+            # 随机采样
+            sampled = random.sample(samples, max_samples_per_user)
+            sampled_samples.extend(sampled)
+    
+    # 打印统计信息
+    print(f"\n{'='*50}")
+    print(f"样本采样统计:")
+    print(f"  原始样本数: {len(all_samples)}")
+    print(f"  用户数: {len(user_samples)}")
+    print(f"  每用户最大样本数: {max_samples_per_user}")
+    print(f"  采样后样本数: {len(sampled_samples)}")
+    print(f"  采样比例: {len(sampled_samples) / len(all_samples) * 100:.1f}%")
+    print(f"  预期训练时间缩短: {len(all_samples) / len(sampled_samples):.1f}x")
+    print(f"{'='*50}\n")
+    
+    return sampled_samples
+
+
+def main():
+    parser = argparse.ArgumentParser(description='分布式消融实验训练（FlashAttention 2 + 动态Padding）- MovieLens')
+    parser.add_argument('--config', type=str,
+                       default='config_MovieLens.json',
+                       help='配置文件路径')
+    parser.add_argument('--ablation_config', type=str, required=True,
+                       choices=['profile_and_history_and_context', 'profile_and_history', 'profile_and_context', 
+                               'history_and_context', 'profile_only', 'history_only', 'context_only'],
+                       help='消融实验配置')
+    parser.add_argument('--val_ratio', type=float, default=0.1,
+                       help='验证集比例')
+    parser.add_argument('--max_epochs', type=int, default=50,
+                       help='最大训练轮次（默认：50）')
+    parser.add_argument('--early_stopping_patience', type=int, default=3,
+                       help='早停耐心值（默认：3）')
+    parser.add_argument('--early_stopping_threshold', type=float, default=0.001,
+                       help='早停阈值（默认：0.001）')
+    parser.add_argument('--output_dir', type=str, default=None,
+                       help='模型输出目录')
+    parser.add_argument('--local_rank', type=int, default=-1,
+                       help='本地进程rank（由 torch.distributed.launch 自动设置）')
+    parser.add_argument('--wandb_project', type=str, default='Qwen3-MovieLens',
+                       help='Weights & Biases项目名称（默认：Qwen3-MovieLens）')
+    parser.add_argument('--wandb_run_name', type=str, default=None,
+                       help='Weights & Biases运行名称（默认：自动生成）')
+    parser.add_argument('--disable_flash_attn', action='store_true',
+                       help='禁用FlashAttention 2，使用标准attention')
+    parser.add_argument('--deepspeed', type=str, default=None,
+                       help='DeepSpeed配置文件路径（可选）')
+    
+    # 新增：Prompt 模板控制参数
+    parser.add_argument('--prompt_style', type=str, default='simple',
+                       choices=['simple', 'detailed', 'lovink'],
+                       help='Prompt 风格：simple=简洁标签格式（默认），detailed=详细模板，lovink=Lovink风格')
+    parser.add_argument('--template_filename', type=str, default=None,
+                       help='指定模板文件名（仅当 prompt_style=detailed 时生效）')
+    
+    # 新增：历史划分策略参数
+    parser.add_argument('--history_strategy', type=str, default='all_previous',
+                       choices=['all_previous', 'fixed_ratio', 'fixed_count', 'random', 'random_targets', 'none'],
+                       help='历史划分策略：all_previous=所有之前的评分（默认），fixed_ratio=固定比例，fixed_count=固定数量，random=随机选择，random_targets=随机选N个作为预测目标(其余都作历史)，none=不使用历史')
+    parser.add_argument('--history_ratio', type=float, default=0.5,
+                       help='历史比例（当history_strategy=fixed_ratio或random时使用，默认0.5）')
+    parser.add_argument('--fixed_history_count', type=int, default=None,
+                       help='固定历史数量（当history_strategy=fixed_count时使用）')
+    
+    # 新增：每用户采样参数
+    parser.add_argument('--max_samples_per_user', type=int, default=None,
+                       help='每个用户最多保留多少个样本（random_targets模式下表示预测目标数，其他模式下直接采样）')
+    parser.add_argument('--sample_seed', type=int, default=42,
+                       help='采样随机种子（默认：42，保证可复现）')
+    parser.add_argument('--load_from_saved', action='store_true',
+                       help='从已保存的JSON文件加载数据（避免重复处理原始数据）')
+    parser.add_argument('--skip_save_processed_data', action='store_true',
+                       help='跳过保存处理后的数据（如果数据量很大，保存可能很慢）')
+    
+    args = parser.parse_args()
+    
+    # 初始化分布式环境
+    rank, world_size, local_rank = setup_distributed()
+    
+    # 只在主进程打印信息
+    is_main_process = (rank == 0)
+    
+    # 配置 Weights & Biases (只在主进程)
+    if args.wandb_project:
+        try:
+            import wandb
+            os.environ['WANDB_PROJECT'] = args.wandb_project
+            if args.wandb_run_name:
+                os.environ['WANDB_NAME'] = args.wandb_run_name
+            if is_main_process:
+                print(f"✓ 已启用 Weights & Biases 监控")
+        except ImportError:
+            if is_main_process:
+                print("警告: wandb 未安装")
+            args.wandb_project = None
+    
+    if is_main_process:
+        print(f"=" * 80)
+        print(f"分布式训练设置（FlashAttention 2 + 动态Padding）:")
+        print(f"  World Size (总进程数): {world_size}")
+        print(f"  Rank (进程ID): {rank}")
+        print(f"  Local Rank (本地GPU ID): {local_rank}")
+        print(f"  使用 {world_size} 张GPU进行并行训练")
+        print(f"  优化策略: FlashAttention 2 + 动态Batch Padding")
+        if args.deepspeed:
+            print(f"  DeepSpeed配置: {args.deepspeed}")
+        print(f"=" * 80)
+    
+    # 检查 FlashAttention 支持
+    use_flash_attn = False
+    if not args.disable_flash_attn and is_main_process:
+        use_flash_attn = check_flash_attention_support()
+    
+    # 广播 use_flash_attn 到所有进程
+    if world_size > 1:
+        use_flash_attn_tensor = torch.tensor([use_flash_attn], dtype=torch.bool, device=f'cuda:{local_rank}')
+        dist.broadcast(use_flash_attn_tensor, src=0)
+        use_flash_attn = use_flash_attn_tensor.item()
+    
+    # 验证GPU是否可用
+    if torch.cuda.is_available():
+        if is_main_process:
+            print(f"CUDA 可用，总GPU数量: {torch.cuda.device_count()}")
+            print(f"当前进程使用 GPU: {local_rank}")
+            gpu_name = torch.cuda.get_device_name(local_rank)
+            gpu_memory = torch.cuda.get_device_properties(local_rank).total_memory / 1024**3
+            print(f"GPU 名称: {gpu_name}")
+            print(f"GPU 总内存: {gpu_memory:.2f} GB")
+            
+            # 检查GPU计算能力
+            compute_capability = torch.cuda.get_device_capability(local_rank)
+            print(f"GPU 计算能力: {compute_capability[0]}.{compute_capability[1]}")
+            if compute_capability[0] >= 8:  # A100/H100
+                print("✓ GPU支持FlashAttention 2优化")
+            else:
+                print("GPU计算能力较低，FlashAttention 2性能可能受限")
+    else:
+        print("错误: CUDA 不可用")
+        cleanup_distributed()
+        return
+    
+    # 加载配置（优先使用当前目录，支持绝对路径）
+    if os.path.isabs(args.config):
+        config_path = args.config
+    else:
+        # 优先查找当前目录
+        local_config = Path(__file__).parent / args.config
+        if local_config.exists():
+            config_path = str(local_config)
+        else:
+            # 回退到父目录（向后兼容）
+            config_path = os.path.join(Path(__file__).parent.parent, args.config)
+    
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    
+    # 获取消融配置
+    ablation_config = config['ablation_configs'][args.ablation_config]
+    use_profile = ablation_config.get('use_profile', True)
+    use_history = ablation_config.get('use_history', True)
+    use_context = ablation_config.get('use_context', True)
+    config_name = ablation_config['name']
+    
+    if is_main_process:
+        print("=" * 80)
+        print(f"消融实验（FlashAttn2 + 动态Padding）: {config_name}")
+        print(f"使用配置: profile={use_profile}, history={use_history}, context={use_context}")
+        print(f"FlashAttention 2: {'启用' if use_flash_attn else '禁用'}")
+        print("=" * 80)
+    
+    # 加载训练数据
+    current_dir = os.getcwd()
+    train_data_path = os.path.join(current_dir, "train_samples.json")
+    all_data_path = os.path.join(current_dir, "all_samples.json")
+    
+    # 检查是否从已保存的文件加载
+    loaded_from_saved = False
+    if args.load_from_saved and os.path.exists(all_data_path):
+        if is_main_process:
+            print(f"从已保存的文件加载数据: {all_data_path}")
+        
+        try:
+            with open(all_data_path, 'r', encoding='utf-8') as f:
+                all_samples = json.load(f)
+            if is_main_process:
+                print(f"✓ 成功加载 {len(all_samples)} 个样本（跳过原始数据处理）")
+            loaded_from_saved = True
+        except Exception as e:
+            if is_main_process:
+                print(f"⚠ 加载保存的文件失败: {e}，将重新处理原始数据")
+            loaded_from_saved = False
+    
+    # 如果没有从保存的文件加载，则处理原始数据
+    if not loaded_from_saved:
+        if is_main_process:
+            print("加载训练数据...")
+        train_path = config['data']['train_path']
+        train_data = load_train_data(train_path)
+        
+        if not train_data:
+            print(f"错误: 无法加载训练数据")
+            cleanup_distributed()
+            return
+        
+        # 提取训练样本 - 使用 MovieLens 专用提取函数
+        all_samples = extract_movielens_samples(train_data, debug=is_main_process)
+        if is_main_process:
+            print(f"提取了 {len(all_samples)} 个训练样本")
+        
+        # 新增：处理采样和历史策略（只在处理原始数据时执行）
+        if args.history_strategy == 'random_targets' and args.max_samples_per_user is not None:
+            # 使用新的 random_targets 策略：每个用户随机选N个作为预测目标，其余都作历史
+            if is_main_process:
+                print(f"\n使用 random_targets 策略：")
+                print(f"  每个用户随机选择 {args.max_samples_per_user} 个评分作为预测目标")
+                print(f"  该用户的其余所有评分都作为历史")
+            all_samples = sample_prediction_targets_per_user(
+                all_samples,
+                max_targets_per_user=args.max_samples_per_user,
+                random_seed=args.sample_seed,
+                debug=is_main_process
+            )
+            # random_targets 模式下已经添加了历史，不需要再次添加
+            use_history = use_history  # 保持原值
+        elif args.max_samples_per_user is not None:
+            # 传统采样：直接限制每个用户的样本数
+            if is_main_process:
+                print(f"\n对每个用户进行采样（每用户最多 {args.max_samples_per_user} 个样本）...")
+            all_samples = sample_per_user(
+                all_samples,
+                max_samples_per_user=args.max_samples_per_user,
+                random_seed=args.sample_seed
+            )
+            
+            # 传统模式下需要单独添加历史信息
+            if use_history:
+                if is_main_process:
+                    print(f"添加历史信息（策略: {args.history_strategy}）...")
+                    if args.history_strategy == 'fixed_ratio' or args.history_strategy == 'random':
+                        print(f"  历史比例: {args.history_ratio}")
+                    elif args.history_strategy == 'fixed_count':
+                        print(f"  固定历史数量: {args.fixed_history_count}")
+                
+                all_samples = add_history_to_samples_movielens(
+                    all_samples,
+                    history_strategy=args.history_strategy,
+                    history_ratio=args.history_ratio,
+                    fixed_history_count=args.fixed_history_count
+                )
+        else:
+            # 不采样，直接添加历史信息
+            if use_history:
+                if is_main_process:
+                    print(f"添加历史信息（策略: {args.history_strategy}）...")
+                    if args.history_strategy == 'fixed_ratio' or args.history_strategy == 'random':
+                        print(f"  历史比例: {args.history_ratio}")
+                    elif args.history_strategy == 'fixed_count':
+                        print(f"  固定历史数量: {args.fixed_history_count}")
+                
+                all_samples = add_history_to_samples_movielens(
+                    all_samples,
+                    history_strategy=args.history_strategy,
+                    history_ratio=args.history_ratio,
+                    fixed_history_count=args.fixed_history_count
+                )
+    else:
+        # 从保存的文件加载，数据已经处理过，跳过采样和历史处理
+        if is_main_process:
+            print("✓ 使用已处理的数据，跳过采样和历史处理步骤")
+    
+    # 移除所有分批处理逻辑，直接使用全部数据
+    
+    # 划分训练集和验证集
+    train_samples, val_samples = split_train_val(all_samples, args.val_ratio)
+    if is_main_process:
+        print(f"\n训练集: {len(train_samples)} 个样本")
+        print(f"验证集: {len(val_samples)} 个样本")
+        print(f"每个GPU实际处理约 {len(train_samples) // world_size} 个训练样本")
+    
+    # 保存处理后的数据到当前目录（优化：添加同步点避免NCCL超时）
+    # 先同步，确保所有进程都完成了数据处理
+    if world_size > 1:
+        dist.barrier()
+    
+    # 如果指定跳过保存，直接继续
+    if args.skip_save_processed_data:
+        if is_main_process:
+            print("\n跳过保存处理后的数据（使用 --skip_save_processed_data）")
+    elif is_main_process:
+        current_dir = os.getcwd()
+        train_data_path = os.path.join(current_dir, "train_samples.json")
+        val_data_path = os.path.join(current_dir, "val_samples.json")
+        all_data_path = os.path.join(current_dir, "all_samples.json")
+        
+        print(f"\n保存处理后的数据到当前目录: {current_dir}")
+        
+        # 保存训练集（对于大数据集，这可能需要一些时间）
+        # 优化：不格式化JSON以加快保存速度
+        try:
+            print(f"保存训练集（{len(train_samples)} 个样本，可能需要一些时间）...")
+            with open(train_data_path, 'w', encoding='utf-8') as f:
+                json.dump(train_samples, f, ensure_ascii=False)  # 移除 indent=2 以加快速度
+            print(f"✓ 训练集已保存: {train_data_path}")
+        except Exception as e:
+            print(f"⚠ 保存训练集失败: {e}")
+        
+        # 保存验证集
+        if val_samples:
+            try:
+                print(f"保存验证集（{len(val_samples)} 个样本）...")
+                with open(val_data_path, 'w', encoding='utf-8') as f:
+                    json.dump(val_samples, f, ensure_ascii=False)  # 移除 indent=2 以加快速度
+                print(f"✓ 验证集已保存: {val_data_path}")
+            except Exception as e:
+                print(f"⚠ 保存验证集失败: {e}")
+        
+        # 保存所有样本
+        try:
+            print(f"保存所有样本（{len(all_samples)} 个样本，可能需要一些时间）...")
+            with open(all_data_path, 'w', encoding='utf-8') as f:
+                json.dump(all_samples, f, ensure_ascii=False)  # 移除 indent=2 以加快速度
+            print(f"✓ 所有样本已保存: {all_data_path}")
+        except Exception as e:
+            print(f"⚠ 保存所有样本失败: {e}")
+        
+        print()
+    
+    # 同步：确保主进程保存完成后，其他进程才继续
+    if world_size > 1:
+        dist.barrier()
+    
+    # 获取模型配置
+    model_config = config['model']
+    
+    # 设置输出目录
+    if args.output_dir:
+        output_dir = args.output_dir
+    else:
+        checkpoint_dir = model_config['checkpoint_dir']
+        dataset_name = os.path.basename(os.path.dirname(train_path))
+        flash_suffix = "flashattn2" if use_flash_attn else "standard"
+        output_dir = os.path.join(checkpoint_dir, f"{dataset_name}_ablation_{config_name}_{flash_suffix}_dynamic_distributed")
+    
+    # 只在主进程创建目录和日志文件
+    training_log_path = None
+    if is_main_process:
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"输出目录: {output_dir}")
+            
+            # 创建训练日志文件
+            training_log_path = os.path.join(output_dir, "training_samples_log.txt")
+            print(f"训练日志: {training_log_path}")
+        except (OSError, IOError) as e:
+            print(f"警告: 无法创建输出目录: {e}")
+    
+    # 等待主进程创建完目录
+    if world_size > 1:
+        dist.barrier()
+    
+    # 加载模型和tokenizer
+    model_path = model_config['path']
+    if is_main_process:
+        print(f"加载模型: {model_path}")
+        if use_flash_attn:
+            print("  使用 FlashAttention 2 实现...")
+    
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
+    # ✅ 先获取 train_config（在数据分析之前需要）
+    train_config = config.get('training', {})
+    
+    # ============================================================================
+    # 计算训练集的最大输入长度（在主进程中）
+    # ============================================================================
+    if is_main_process:
+        print("\n" + "="*80)
+        print("分析训练数据长度分布")
+        print("="*80)
+        
+        # 导入prompt构建函数
+        from data_loader_more_data import build_simple_training_prompt
+        
+        # 采样部分数据进行分析（避免太慢）
+        sample_size = min(100, len(train_samples))
+        sampled_indices = random.sample(range(len(train_samples)), sample_size)
+        
+        lengths = []
+        max_length_sample = None
+        max_length = 0
+        
+        print(f"正在分析 {sample_size} 个样本...")
+        for idx in sampled_indices:
+            sample = train_samples[idx]
+            
+            # 构建prompt
+            try:
+                messages, target_answer = build_simple_training_prompt(
+                    context=sample.get('context', []),
+                    next_question=sample['next_question'],
+                    user_profile=sample.get('user_profile') if use_profile else None,
+                    task_description=sample.get('task_description'),
+                    history=sample.get('history', []) if use_history else [],
+                    use_profile=use_profile,
+                    use_history=use_history,
+                    use_context=use_context,
+                    tokenizer=tokenizer,
+                    max_length=train_config.get('max_length', 4096),
+                    min_target_tokens=64,
+                    user_hash=sample.get('user_hash', sample.get('user_id'))
+                )
+                
+                # 生成完整文本
+                full_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+                generation_suffix = "<|im_start|>assistant\n"
+                full_prompt = full_prompt.strip() + generation_suffix
+                im_end_token = "<|im_end|>"
+                full_text = full_prompt + target_answer + im_end_token
+                
+                # 计算长度
+                token_ids = tokenizer.encode(full_text, add_special_tokens=False)
+                length = len(token_ids)
+                lengths.append(length)
+                
+                # 记录最长的样本
+                if length > max_length:
+                    max_length = length
+                    max_length_sample = {
+                        'idx': idx,
+                        'length': length,
+                        'user_hash': sample.get('user_hash', sample.get('user_id', 'unknown')),
+                        'context_turns': len(sample.get('context', [])),
+                        'history_items': len(sample.get('history', []))
+                    }
+            except Exception as e:
+                print(f"  警告: 样本 {idx} 处理失败: {e}")
+                continue
+        
+        if lengths:
+            import numpy as np
+            lengths_array = np.array(lengths)
+            
+            print(f"\n训练数据长度统计（基于 {len(lengths)} 个样本）:")
+            print(f"  最小长度: {lengths_array.min()}")
+            print(f"  最大长度: {lengths_array.max()}")
+            print(f"  平均长度: {lengths_array.mean():.1f}")
+            print(f"  中位数长度: {np.median(lengths_array):.1f}")
+            print(f"  标准差: {lengths_array.std():.1f}")
+            print(f"\n长度分布:")
+            print(f"  < 1024 tokens:  {(lengths_array < 1024).sum()} ({(lengths_array < 1024).sum()/len(lengths)*100:.1f}%)")
+            print(f"  < 2048 tokens:  {(lengths_array < 2048).sum()} ({(lengths_array < 2048).sum()/len(lengths)*100:.1f}%)")
+            print(f"  < 4096 tokens:  {(lengths_array < 4096).sum()} ({(lengths_array < 4096).sum()/len(lengths)*100:.1f}%)")
+            print(f"  < 8192 tokens:  {(lengths_array < 8192).sum()} ({(lengths_array < 8192).sum()/len(lengths)*100:.1f}%)")
+            print(f"  >= 8192 tokens: {(lengths_array >= 8192).sum()} ({(lengths_array >= 8192).sum()/len(lengths)*100:.1f}%)")
+            
+            if max_length_sample:
+                print(f"\n最长样本信息:")
+                print(f"  索引: {max_length_sample['idx']}")
+                print(f"  长度: {max_length_sample['length']} tokens")
+                print(f"  用户哈希: {max_length_sample['user_hash']}")
+                print(f"  上下文轮次: {max_length_sample['context_turns']}")
+                print(f"  历史条目数: {max_length_sample['history_items']}")
+            
+            # 根据数据分布给出配置建议
+            configured_max_length = train_config.get('max_length', 4096)
+            percentile_95 = np.percentile(lengths_array, 95)
+            print(f"\n配置建议:")
+            print(f"  当前配置的 max_length: {configured_max_length}")
+            print(f"  95分位数长度: {percentile_95:.0f}")
+            if percentile_95 > configured_max_length:
+                print(f"  警告: 95%的数据超过配置的max_length，可能导致大量截断")
+                print(f"  建议调整 max_length 至少到 {int(percentile_95)}")
+            elif percentile_95 < configured_max_length * 0.7:
+                print(f"  提示: 95%的数据长度远小于max_length，可以考虑降低以节省显存")
+            else:
+                print(f"  ✓ max_length 设置合理")
+        
+        print("="*80 + "\n")
+    
+    # 等待主进程完成分析
+    if world_size > 1:
+        dist.barrier()
+    
+    # 加载模型到指定GPU（使用FlashAttention 2）
+    model_kwargs = {
+        'torch_dtype': torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
+        'trust_remote_code': True,
+    }
+    
+    # 如果支持且未禁用，则使用FlashAttention 2
+    if use_flash_attn:
+        model_kwargs['attn_implementation'] = 'flash_attention_2'
+    
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+        if is_main_process:
+            if use_flash_attn:
+                print("✓ 模型已加载（FlashAttention 2）")
+            else:
+                print("✓ 模型已加载（标准Attention）")
+    except Exception as e:
+        if is_main_process:
+            print(f"加载FlashAttention 2失败: {e}")
+            print("   回退到标准attention...")
+        # 回退到标准attention
+        model_kwargs.pop('attn_implementation', None)
+        model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+        use_flash_attn = False
+    
+    # 启用梯度检查点
+    if hasattr(model, 'gradient_checkpointing_enable'):
+        model.gradient_checkpointing_enable()
+        if is_main_process:
+            print("✓ 梯度检查点已启用")
+    
+    # 将模型移到对应的GPU
+    model = model.to(local_rank)
+    
+    # 创建数据集（使用动态Padding版本）
+    # train_config 已在前面定义（数据分析阶段）
+    if is_main_process:
+        print("创建训练数据集（动态Padding模式）...")
+    
+    # ✅ 根据命令行参数决定使用哪种 prompt 风格
+    use_detailed_template = (args.prompt_style != 'simple')
+    template_filename = args.template_filename if args.prompt_style == 'detailed' else None
+    
+    if is_main_process:
+        print(f"Prompt 风格: {args.prompt_style}")
+        if args.prompt_style == 'simple':
+            print("   使用简洁标签格式（[USER_PROFILE] [DIM_XXX=score] ...）")
+        elif args.prompt_style == 'detailed':
+            if template_filename:
+                print(f"   使用详细模板: {template_filename} (标准 {{VAR_NAME}} 格式)")
+            else:
+                print("   使用详细模板（默认顺序查找）")
+        elif args.prompt_style == 'lovink':
+            print("   使用 Lovink 风格模板")
+    
+    train_dataset = DynamicPaddingDataset(
+        samples=train_samples,
+        tokenizer=tokenizer,
+        max_length=train_config.get('max_length', 4096),
+        use_profile=use_profile,
+        use_history=use_history,
+        use_context=use_context,
+        verbose=is_main_process,  # 只在主进程输出详细日志
+        use_detailed_template=use_detailed_template,
+        template_filename=template_filename
+    )
+    
+    val_dataset = None
+    if val_samples:
+        if is_main_process:
+            print("创建验证数据集（动态Padding模式）...")
+        val_dataset = DynamicPaddingDataset(
+            samples=val_samples,
+            tokenizer=tokenizer,
+            max_length=train_config.get('max_length', 4096),
+            use_profile=use_profile,
+            use_history=use_history,
+            use_context=use_context,
+            use_detailed_template=use_detailed_template,
+            template_filename=template_filename
+        )
+    
+    # 数据整理器（使用动态Padding版本）
+    def collate_fn(examples):
+        return dynamic_padding_collate_fn(examples, tokenizer)
+    
+    # 在主进程中打印几个样本示例（用于调试和验证）
+    if is_main_process and training_log_path:
+        print("\n" + "=" * 80)
+        print("📝 样本示例（前5个训练样本）")
+        print("=" * 80)
+        
+        # 同时写入日志文件
+        with open(training_log_path, 'w', encoding='utf-8') as log_file:
+            log_file.write("=" * 80 + "\n")
+            log_file.write(f"训练配置: {config_name}\n")
+            log_file.write(f"数据集: {train_path}\n")
+            log_file.write(f"总样本数: {len(train_samples)}\n")
+            log_file.write(f"Max Length: {train_config.get('max_length', 4096)}\n")
+            log_file.write(f"FlashAttention 2: {'启用' if use_flash_attn else '禁用'}\n")
+            log_file.write("=" * 80 + "\n\n")
+            
+            num_samples_to_show = min(5, len(train_samples))
+            for i in range(num_samples_to_show):
+                sample = train_samples[i]
+                
+                # 控制台输出
+                print(f"\n--- 样本 {i+1} ---")
+                
+                # 日志文件输出
+                log_file.write(f"\n{'=' * 80}\n")
+                log_file.write(f"样本 {i+1}\n")
+                log_file.write(f"{'=' * 80}\n\n")
+                
+                # MovieLens 数据格式：显示历史和目标
+                history = sample.get('history', [])
+                history_info = f"History ({len(history)}条评分):"
+                print(history_info)
+                log_file.write(history_info + "\n")
+                
+                # 显示前5条历史评分
+                for j, hist_item in enumerate(history[:5]):
+                    # MovieLens 历史数据是字典格式，需要格式化显示
+                    if isinstance(hist_item, dict):
+                        hist_str = f"电影: {hist_item.get('movie', 'N/A')}, 评分: {hist_item.get('rating', 'N/A')}, 时间: {hist_item.get('timestamp', 'N/A')}"
+                    else:
+                        hist_str = str(hist_item)
+                    
+                    # 控制台显示截断版本
+                    display_str = hist_str[:80] + "..." if len(hist_str) > 80 else hist_str
+                    print(f"  {j+1}. {display_str}")
+                    # 日志文件显示完整内容
+                    log_file.write(f"  {j+1}. {hist_str}\n")
+                
+                if len(history) > 5:
+                    print(f"  ... (还有 {len(history) - 5} 条历史)")
+                    log_file.write(f"  ... (还有 {len(history) - 5} 条历史)\n")
+                
+                # 显示当前要评分的电影
+                movie_info = sample.get('continuation_prefix', '未知电影')
+                print(f"\n当前电影:")
+                print(f"  {movie_info}")
+                log_file.write(f"\n当前电影:\n  {movie_info}\n")
+                
+                # 显示要预测的评分target
+                target = sample['next_question']
+                print(f"\nTarget (模型要生成的评分):")
+                print(f"  {target}")
+                
+                log_file.write(f"\nTarget (模型要生成的评分):\n")
+                log_file.write(f"  {target}\n\n")
+                
+                # 显示profile信息
+                if sample.get('user_profile'):
+                    profile = sample['user_profile']
+                    print(f"\nProfile:")
+                    log_file.write(f"Profile:\n")
+                    
+                    for key in ['name', 'age', 'gender', 'profession', 'residence']:
+                        if key in profile:
+                            info = f"  {key.capitalize()}: {profile[key]}"
+                            print(info)
+                            log_file.write(info + "\n")
+                
+                # 使用dataset的__getitem__来获取编码后的信息
+                try:
+                    encoded_sample = train_dataset[i]
+                    input_length = len(encoded_sample['input_ids'])
+                    valid_labels = (encoded_sample['labels'] != -100).sum().item()
+                    actual_length = encoded_sample.get('actual_length', input_length)
+                    
+                    encoding_info = [
+                        f"\n编码信息:",
+                        f"  输入长度: {input_length} tokens",
+                        f"  实际长度: {actual_length} tokens",
+                        f"  有效标签数: {valid_labels} tokens",
+                        f"  训练比例: {valid_labels/input_length:.2%}"
+                    ]
+                    
+                    for line in encoding_info:
+                        print(line)
+                        log_file.write(line + "\n")
+                    
+                    # 检查是否被截断
+                    if hasattr(train_dataset, 'truncation_stats'):
+                        stats = train_dataset.get_truncation_stats()
+                        if stats['truncated_samples'] > 0:
+                            truncation_info = f"  ⚠️  已有 {stats['truncated_samples']} 个样本被截断"
+                            print(truncation_info)
+                            log_file.write(truncation_info + "\n")
+                    
+                except Exception as e:
+                    error_msg = f"\n编码信息: 无法获取 ({e})"
+                    print(error_msg)
+                    log_file.write(error_msg + "\n")
+                
+                log_file.write("\n")
+        
+        print(f"\n✓ 样本详情已保存到: {training_log_path}")
+        print("=" * 80)
+    
+    # 计算训练步数
+    steps_per_epoch = len(train_dataset) // (world_size * train_config.get('batch_size', 2) * train_config.get('gradient_accumulation_steps', 8))
+    eval_steps_value = max(1, steps_per_epoch // 2) if val_dataset else None
+    save_steps_value = train_config.get('save_steps', 500)
+    
+    if val_dataset and eval_steps_value and save_steps_value % eval_steps_value != 0:
+        save_steps_value = ((save_steps_value + eval_steps_value - 1) // eval_steps_value) * eval_steps_value
+        if is_main_process:
+            print(f"调整 save_steps 为 {save_steps_value}（eval_steps={eval_steps_value} 的整数倍）")
+    
+    # 训练参数（分布式 + FlashAttention 2 + 动态Padding）
+    training_args = TrainingArguments(
+        output_dir=output_dir,
+        num_train_epochs=args.max_epochs,
+        per_device_train_batch_size=train_config.get('batch_size', 2),
+        per_device_eval_batch_size=train_config.get('eval_batch_size', 2),
+        gradient_accumulation_steps=train_config.get('gradient_accumulation_steps', 8),
+        learning_rate=train_config.get('learning_rate', 1e-5),
+        weight_decay=train_config.get('weight_decay', 0.01),
+        warmup_steps=train_config.get('warmup_steps', 100),
+        logging_steps=train_config.get('logging_steps', 10),
+        save_steps=save_steps_value,
+        eval_steps=eval_steps_value,
+        eval_strategy="steps" if val_dataset else "no",
+        save_total_limit=train_config.get('save_total_limit', 3),
+        load_best_model_at_end=True if val_dataset else False,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        fp16=False,
+        bf16=True,  # FlashAttention 2 与 BF16 配合效果更好
+        dataloader_pin_memory=False,
+        gradient_checkpointing=True,
+        optim="adamw_torch",
+        max_grad_norm=0.5,
+        report_to="wandb" if args.wandb_project else "none",
+        # 分布式训练关键参数
+        local_rank=local_rank,
+        ddp_find_unused_parameters=False,
+        ddp_backend="nccl",
+        dataloader_num_workers=2,
+        save_on_each_node=False,
+        logging_first_step=True,
+        # DeepSpeed配置（可选）
+        deepspeed=args.deepspeed,
+    )
+    
+    # 创建早停回调
+    callbacks = []
+    if val_dataset:
+        early_stopping = EarlyStoppingCallback(
+            early_stopping_patience=args.early_stopping_patience,
+            early_stopping_threshold=args.early_stopping_threshold
+        )
+        callbacks.append(early_stopping)
+    
+    # 创建 Trainer（使用统一的 CustomTrainerWithAnswerWeight）
+    trainer = CustomTrainerWithAnswerWeight(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
+        data_collator=collate_fn,  # 使用动态padding的collate_fn
+        processing_class=tokenizer,
+        callbacks=callbacks,
+        tokenizer=tokenizer,
+        is_main_process=is_main_process,
+        rank=rank,
+        debug_steps=3,
+    )
+    
+    # 创建训练日志文件（主进程）
+    if is_main_process:
+        log_dir = os.path.join(output_dir, "training_logs")
+        os.makedirs(log_dir, exist_ok=True)
+        training_log_file = os.path.join(log_dir, "detailed_training_log.txt")
+        
+        print(f"\n📝 创建详细训练日志: {training_log_file}")
+        
+        with open(training_log_file, 'w', encoding='utf-8') as f:
+            f.write("=" * 100 + "\n")
+            f.write("详细训练日志 - 前3个训练样本\n")
+            f.write("=" * 100 + "\n\n")
+            
+            # 记录前3个训练样本的详细信息
+            num_samples_to_log = min(3, len(train_dataset))
+            for idx in range(num_samples_to_log):
+                raw_sample = train_samples[idx]
+                encoded_sample = train_dataset[idx]
+                
+                f.write(f"\n{'=' * 100}\n")
+                f.write(f"训练样本 #{idx + 1}\n")
+                f.write(f"{'=' * 100}\n\n")
+                
+                # 1. 原始样本信息
+                f.write("【原始样本信息】\n")
+                f.write(f"User Hash: {raw_sample.get('user_hash', 'N/A')}\n")
+                if raw_sample.get('user_profile'):
+                    profile = raw_sample['user_profile']
+                    f.write(f"User Profile: {profile.get('name', 'N/A')} (age: {profile.get('age', 'N/A')})\n")
+                f.write("\n")
+                
+                # 2. 对话上下文
+                f.write("【对话上下文 Context】\n")
+                context = raw_sample.get('context', [])
+                for turn_idx, turn in enumerate(context[-5:], 1):  # 只显示最后5轮
+                    role = turn.get('role', 'unknown')
+                    content = turn.get('content', '')
+                    f.write(f"  轮次{turn_idx} [{role}]: {content}\n")
+                if len(context) > 5:
+                    f.write(f"  ... (还有 {len(context) - 5} 轮对话)\n")
+                f.write("\n")
+                
+                # 3. 目标输出（模型要学习生成的内容）
+                f.write("【目标输出 Next Question】\n")
+                next_question = raw_sample.get('next_question', '')
+                f.write(f"{next_question}\n\n")
+                
+                # 4. 历史信息（如果有）
+                if use_history and raw_sample.get('history'):
+                    f.write("【历史信息 History】\n")
+                    history = raw_sample['history']
+                    for hist_idx, hist_item in enumerate(history[:3], 1):  # 只显示前3条
+                        # MovieLens 历史数据是字典格式，需要格式化显示
+                        if isinstance(hist_item, dict):
+                            hist_str = f"电影: {hist_item.get('movie', 'N/A')}, 评分: {hist_item.get('rating', 'N/A')}, 时间: {hist_item.get('timestamp', 'N/A')}"
+                        else:
+                            hist_str = str(hist_item)
+                        # 截断显示
+                        display_str = hist_str[:100] + "..." if len(hist_str) > 100 else hist_str
+                        f.write(f"  历史{hist_idx}: {display_str}\n")
+                    if len(history) > 3:
+                        f.write(f"  ... (还有 {len(history) - 3} 条历史)\n")
+                    f.write("\n")
+                
+                # 5. 编码后的信息
+                f.write("【编码后的数据】\n")
+                input_ids = encoded_sample['input_ids']
+                labels = encoded_sample['labels']
+                attention_mask = encoded_sample['attention_mask']
+                
+                f.write(f"Input IDs 长度: {len(input_ids)}\n")
+                f.write(f"Attention Mask 长度: {len(attention_mask)}\n")
+                f.write(f"Labels 长度: {len(labels)}\n")
+                
+                valid_labels = (labels != -100).sum().item()
+                f.write(f"有效标签数: {valid_labels}\n")
+                f.write(f"训练比例: {valid_labels / len(labels):.2%}\n")
+                
+                # 解码查看实际的文本（更详细的打印）
+                total_length = len(input_ids)
+                
+                # 如果序列不太长（< 6000 tokens），直接打印完整内容
+                if total_length <= 6000:
+                    f.write("\n【完整的输入文本】\n")
+                    f.write("-" * 100 + "\n")
+                    decoded_full = tokenizer.decode(input_ids, skip_special_tokens=False)
+                    f.write(decoded_full + "\n")
+                    f.write("-" * 100 + "\n\n")
+                    f.write(f"总序列长度: {total_length} tokens (已打印完整内容)\n\n")
+                else:
+                    # 序列太长，分段打印
+                    f.write(f"\n【序列太长 ({total_length} tokens)，分段打印】\n\n")
+                    
+                    # 打印前2000个tokens
+                    f.write("【第1-2000 tokens】\n")
+                    f.write("-" * 100 + "\n")
+                    decoded_input_start = tokenizer.decode(input_ids[:2000], skip_special_tokens=False)
+                    f.write(decoded_input_start + "\n")
+                    f.write("-" * 100 + "\n\n")
+                    
+                    # 打印中间部分（第2000-4000个tokens）
+                    f.write("【第2001-4000 tokens】\n")
+                    f.write("-" * 100 + "\n")
+                    decoded_input_middle = tokenizer.decode(input_ids[2000:4000], skip_special_tokens=False)
+                    f.write(decoded_input_middle + "\n")
+                    f.write("-" * 100 + "\n\n")
+                    
+                    # 如果还有更多，打印第4000-6000
+                    if total_length > 6000:
+                        f.write("【第4001-6000 tokens】\n")
+                        f.write("-" * 100 + "\n")
+                        decoded_input_middle2 = tokenizer.decode(input_ids[4000:6000], skip_special_tokens=False)
+                        f.write(decoded_input_middle2 + "\n")
+                        f.write("-" * 100 + "\n\n")
+                    
+                    # 打印后2000个tokens
+                    f.write("【后2000 tokens】\n")
+                    f.write("-" * 100 + "\n")
+                    decoded_input_end = tokenizer.decode(input_ids[-2000:], skip_special_tokens=False)
+                    f.write(decoded_input_end + "\n")
+                    f.write("-" * 100 + "\n\n")
+                    
+                    f.write(f"总序列长度: {total_length} tokens\n\n")
+                
+                # 解码标签（只显示有效的部分）
+                valid_label_indices = (labels != -100).nonzero(as_tuple=True)[0]
+                if len(valid_label_indices) > 0:
+                    f.write("【解码后的标签文本 (模型要学习生成的部分)】\n")
+                    f.write("-" * 100 + "\n")
+                    valid_labels_ids = labels[valid_label_indices]
+                    decoded_labels = tokenizer.decode(valid_labels_ids, skip_special_tokens=False)
+                    f.write(decoded_labels + "\n")
+                    f.write("-" * 100 + "\n\n")
+                
+                f.write("\n")
+            
+            f.write("=" * 100 + "\n")
+            f.write("训练样本日志记录完成\n")
+            f.write("=" * 100 + "\n")
+        
+        print(f"✓ 训练样本日志已保存到: {training_log_file}\n")
+        
+        # 在控制台显示第一个样本的简要信息
+        print("=" * 80)
+        print("📋 第一个训练样本预览")
+        print("=" * 80)
+        
+        first_sample = train_samples[0]
+        print(f"User Hash: {first_sample.get('user_hash', 'N/A')}")
+        
+        context = first_sample.get('context', [])
+        if context:
+            print(f"\nContext 最后一轮:")
+            last_turn = context[-1]
+            print(f"  [{last_turn.get('role', 'unknown')}]: {last_turn.get('content', '')[:150]}...")
+        
+        next_question = first_sample.get('next_question', '')
+        print(f"\nTarget (要学习生成的):")
+        print(f"  {next_question[:150]}...")
+        
+        first_encoded = train_dataset[0]
+        print(f"\n编码信息:")
+        print(f"  Input length: {len(first_encoded['input_ids'])} tokens")
+        print(f"  Valid labels: {(first_encoded['labels'] != -100).sum().item()} tokens")
+        print(f"  训练比例: {(first_encoded['labels'] != -100).sum().item() / len(first_encoded['labels']):.2%}")
+        
+        print("=" * 80 + "\n")
+    
+    # 开始训练
+    if is_main_process:
+        print("=" * 80)
+        print("开始分布式训练（FlashAttention 2 + 动态Padding）")
+        print("=" * 80)
+        print(f"总样本数: {len(train_dataset)}")
+        print(f"每个GPU处理约: {len(train_dataset) // world_size} 个样本")
+        effective_batch = train_config.get('batch_size', 2) * train_config.get('gradient_accumulation_steps', 8) * world_size
+        print(f"有效 batch size: {effective_batch}")
+        print(f"预计每个epoch步数: {steps_per_epoch}")
+        print(f"Max Length: {train_config.get('max_length', 4096)} (动态padding)")
+        print(f"Attention: {'FlashAttention 2' if use_flash_attn else '标准Attention'}")
+        if args.wandb_project:
+            print(f"W&B 监控: 项目={args.wandb_project}, 运行={args.wandb_run_name or 'auto'}")
+        
+        # 输出初始截断统计（训练前）
+        if hasattr(train_dataset, 'get_truncation_stats'):
+            stats = train_dataset.get_truncation_stats()
+            print(f"\n数据预处理截断统计:")
+            print(f"  已处理样本: {stats['total_samples']}")
+            print(f"  被截断样本: {stats['truncated_samples']}")
+            if stats['total_samples'] > 0:
+                print(f"  截断率: {stats['truncation_rate']:.2%}")
+                if stats['truncated_samples'] > 0:
+                    print(f"  平均截断轮次: {stats['avg_truncated_turns']:.2f}")
+        
+        print("=" * 80)
+    
+    trainer.train()
+    
+    # 训练完成，输出日志汇总
+    if is_main_process:
+        print("\n" + "=" * 80)
+        print("📊 训练日志汇总")
+        print("=" * 80)
+        
+        log_dir = os.path.join(output_dir, "training_logs")
+        if os.path.exists(log_dir):
+            print(f"详细日志文件:")
+            for log_file_name in os.listdir(log_dir):
+                log_path = os.path.join(log_dir, log_file_name)
+                file_size = os.path.getsize(log_path) / 1024  # KB
+                print(f"  - {log_path} ({file_size:.1f} KB)")
+        print("=" * 80 + "\n")
+    
+    # 保存最终模型（只在主进程保存）
+    if is_main_process:
+        print(f"保存最终模型到 {output_dir}")
+        try:
+            trainer.save_model()
+            tokenizer.save_pretrained(output_dir)
+            print("✓ 模型保存成功")
+            
+            # 保存训练配置信息
+            config_info = {
+                'flash_attention_2': use_flash_attn,
+                'dynamic_padding': True,
+                'gradient_checkpointing': True,
+                'ablation_config': args.ablation_config,
+                'config_name': config_name
+            }
+            with open(os.path.join(output_dir, 'training_config.json'), 'w', encoding='utf-8') as f:
+                json.dump(config_info, f, indent=2, ensure_ascii=False)
+            print("✓ 训练配置已保存")
+            
+        except Exception as e:
+            print(f"警告: 保存模型时出错: {e}")
+        
+        # 输出截断统计
+        if hasattr(train_dataset, 'get_truncation_stats'):
+            stats = train_dataset.get_truncation_stats()
+            print("\n" + "="*80)
+            print(" 训练数据截断统计:")
+            print(f"  总样本数: {stats['total_samples']}")
+            print(f"  被截断样本数: {stats['truncated_samples']}")
+            print(f"  截断率: {stats['truncation_rate']:.2%}")
+            print(f"  平均截断轮次: {stats['avg_truncated_turns']:.2f}")
+            print("="*80)
+            
+            # 将截断统计写入日志文件
+            if training_log_path:
+                try:
+                    with open(training_log_path, 'a', encoding='utf-8') as log_file:
+                        log_file.write("\n" + "="*80 + "\n")
+                        log_file.write("📊 最终训练数据截断统计\n")
+                        log_file.write("="*80 + "\n")
+                        log_file.write(f"总样本数: {stats['total_samples']}\n")
+                        log_file.write(f"被截断样本数: {stats['truncated_samples']}\n")
+                        log_file.write(f"截断率: {stats['truncation_rate']:.2%}\n")
+                        log_file.write(f"平均截断轮次: {stats['avg_truncated_turns']:.2f}\n")
+                        log_file.write(f"FlashAttention 2: {'启用' if use_flash_attn else '禁用'}\n")
+                        log_file.write("="*80 + "\n")
+                    print(f"✓ 截断统计已追加到: {training_log_path}")
+                except Exception as e:
+                    print(f"警告: 无法写入截断统计到日志文件: {e}")
+    
+    # 等待所有进程完成
+    if world_size > 1:
+        dist.barrier()
+    
+    if is_main_process:
+        print(f"\n 训练完成！模型保存在: {output_dir}")
+        if use_flash_attn:
+            print(" 使用了 FlashAttention 2 加速训练")
+    
+    # 清理分布式环境
+    cleanup_distributed()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n用户中断训练")
+        cleanup_distributed()
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n\n训练过程中发生错误: {e}")
+        import traceback
+        traceback.print_exc()
+        cleanup_distributed()
+        sys.exit(1)
