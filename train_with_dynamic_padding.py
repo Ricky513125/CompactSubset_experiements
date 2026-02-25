@@ -22,6 +22,182 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 
 
+# ============================================================================
+# 统一的 CustomTrainer（支持 [ANSWER] 标签权重）
+# ============================================================================
+
+class CustomTrainerWithAnswerWeight(Trainer):
+    """
+    自定义 Trainer，支持 [ANSWER] 标签权重和数值稳定性检查
+    
+    特性：
+    - 对 [ANSWER] 和 [/ANSWER] 标签本身增加权重 3.0
+    - 修正梯度累积导致的 loss 显示问题
+    - 数值稳定性检查（nan/inf 检测和清理）
+    - 可选的调试信息输出
+    """
+    
+    def __init__(self, *args, tokenizer=None, is_main_process=True, rank=0, debug_steps=3, **kwargs):
+        """
+        Args:
+            tokenizer: tokenizer 实例（用于 [ANSWER] 标签权重计算）
+            is_main_process: 是否为主进程（用于分布式训练）
+            rank: 进程 rank（用于分布式训练）
+            debug_steps: 打印调试信息的前 N 个 step
+        """
+        super().__init__(*args, **kwargs)
+        self.tokenizer = tokenizer
+        self.is_main_process = is_main_process
+        self.rank = rank
+        self.debug_steps = debug_steps
+    
+    def log(self, logs: Dict[str, float], **kwargs) -> None:
+        """修正梯度累积导致的train_loss显示问题"""
+        if "loss" in logs:
+            logs["loss"] = logs["loss"] / self.args.gradient_accumulation_steps
+        super().log(logs, **kwargs)
+    
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        """计算损失（对 [ANSWER] 和 [/ANSWER] 标签本身增加权重 3，内容保持权重 1）"""
+        # 移除actual_length字段（如果存在）
+        actual_lengths = inputs.pop('actual_length', None)
+        
+        # 前N个step打印batch信息（用于调试）
+        if self.is_main_process and self.state.global_step < self.debug_steps:
+            batch_size = inputs['input_ids'].shape[0]
+            seq_len = inputs['input_ids'].shape[1]
+            valid_labels = (inputs['labels'] != -100).sum().item()
+            print(f"\n[Step {self.state.global_step}] Batch信息: size={batch_size}, seq_len={seq_len}, valid_labels={valid_labels}")
+        
+        outputs = model(**inputs)
+        logits = outputs.get("logits")
+        labels = inputs.get("labels")
+        
+        # 检查并清理logits中的nan/inf
+        if logits is not None and logits.numel() > 0:
+            # 快速采样检查
+            check_size = min(1000, logits.numel() // 2)
+            if logits.numel() > check_size * 2:
+                head_values = logits.view(-1)[:check_size]
+                tail_values = logits.view(-1)[-check_size:]
+                has_issue = torch.isnan(head_values).any() or torch.isnan(tail_values).any() or \
+                            torch.isinf(head_values).any() or torch.isinf(tail_values).any()
+            else:
+                has_issue = torch.isnan(logits).any() or torch.isinf(logits).any()
+            
+            if has_issue:
+                if self.is_main_process:
+                    print(f"警告: [GPU {self.rank}] Step {self.state.global_step} 检测到nan/inf，正在清理...")
+                logits = torch.where(
+                    torch.isnan(logits) | torch.isinf(logits),
+                    torch.tensor(0.0, device=logits.device, dtype=logits.dtype),
+                    logits
+                )
+                logits = torch.clamp(logits, min=-50.0, max=50.0)
+        
+        # 计算损失（对 [ANSWER] 和 [/ANSWER] 标签本身增加权重 3，内容保持权重 1）
+        if hasattr(outputs, 'loss') and outputs.loss is not None:
+            loss = outputs.loss
+        elif labels is not None:
+            valid_labels_count = (labels != -100).sum().item()
+            
+            if valid_labels_count == 0:
+                if self.is_main_process:
+                    print(f"警告: [GPU {self.rank}] Step {self.state.global_step} 没有有效的labels")
+                loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
+            else:
+                shift_logits = logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                
+                # 创建损失权重：对 [ANSWER] 和 [/ANSWER] token 增加权重
+                # 获取 tokenizer 中的 [ANSWER] 和 [/ANSWER] 的所有 token IDs
+                answer_start_token_ids = set()
+                answer_end_token_ids = set()
+                
+                try:
+                    # 尝试获取 [ANSWER] 和 [/ANSWER] 的所有 token IDs
+                    if self.tokenizer and hasattr(self.tokenizer, 'encode'):
+                        # 编码标签（可能被编码为多个 token）
+                        answer_start_tokens = self.tokenizer.encode("[ANSWER]", add_special_tokens=False)
+                        answer_end_tokens = self.tokenizer.encode("[/ANSWER]", add_special_tokens=False)
+                        
+                        # 保存所有相关的 token IDs（不仅仅是第一个）
+                        if answer_start_tokens:
+                            answer_start_token_ids = set(answer_start_tokens)
+                        if answer_end_tokens:
+                            answer_end_token_ids = set(answer_end_tokens)
+                except:
+                    pass
+                
+                # 创建权重张量（默认权重为 1.0）
+                batch_size, seq_len = shift_labels.shape
+                loss_weights = torch.ones_like(shift_labels, dtype=torch.float32)
+                
+                # 对 [ANSWER] 和 [/ANSWER] 标签本身的所有 token 增加权重（权重设为 3.0）
+                # 注意：标签之间的内容保持普通权重 1.0
+                answer_tag_count = 0
+                if answer_start_token_ids:
+                    for token_id in answer_start_token_ids:
+                        count = (shift_labels == token_id).sum().item()
+                        loss_weights[shift_labels == token_id] = 3.0
+                        answer_tag_count += count
+                if answer_end_token_ids:
+                    for token_id in answer_end_token_ids:
+                        count = (shift_labels == token_id).sum().item()
+                        loss_weights[shift_labels == token_id] = 3.0
+                        answer_tag_count += count
+                
+                # 前N个step打印权重信息（用于调试）
+                if self.is_main_process and self.state.global_step < self.debug_steps:
+                    weighted_tokens = (loss_weights == 3.0).sum().item()
+                    print(f"  [ANSWER]标签tokens: {answer_tag_count}, 加权tokens总数: {weighted_tokens}")
+                
+                # 使用加权损失
+                loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
+                per_token_loss = loss_fct(
+                    shift_logits.view(-1, shift_logits.size(-1)),
+                    shift_labels.view(-1)
+                )
+                
+                # 应用权重并计算平均损失
+                per_token_loss = per_token_loss.view(batch_size, seq_len)
+                valid_mask = (shift_labels != -100)
+                weighted_loss = (per_token_loss * loss_weights * valid_mask.float()).sum()
+                valid_count = (valid_mask.float() * loss_weights).sum()
+                
+                if valid_count > 0:
+                    loss = weighted_loss / valid_count
+                    # 前N个step打印损失信息（用于调试）
+                    if self.is_main_process and self.state.global_step < self.debug_steps:
+                        print(f"  计算损失: weighted_loss={weighted_loss.item():.4f}, valid_count={valid_count.item():.0f}, final_loss={loss.item():.4f}")
+                else:
+                    loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
+        else:
+            loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
+        
+        # 检查损失值
+        if loss is not None and torch.is_tensor(loss):
+            if loss.dim() > 0:
+                loss = loss.mean()
+            
+            if torch.isnan(loss) or torch.isinf(loss):
+                if self.is_main_process:
+                    print(f"警告: [GPU {self.rank}] Step {self.state.global_step} loss为nan/inf")
+                loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
+            elif loss.item() > 1e6:
+                if self.is_main_process:
+                    print(f"警告: [GPU {self.rank}] Step {self.state.global_step} loss过大")
+                loss = torch.clamp(loss, max=100.0)
+        
+        # 定期清理CUDA缓存
+        if self.state.global_step % 10 == 0:
+            torch.cuda.empty_cache()
+        
+        if return_outputs:
+            return loss, outputs
+        return loss
+
+
 def split_train_val(samples, val_ratio=0.1, seed=42):
     """
     划分训练集和验证集（用户内划分，保证每个用户在训练和验证集都有样本）
@@ -588,135 +764,14 @@ class AblationTrainerWithDynamicPadding(AblationTrainer):
             ddp_find_unused_parameters=False,
         )
         
-        # 自定义 Trainer
-        class CustomTrainer(Trainer):
-            def __init__(self, *args, verbose_logging=False, log_dir=None, **kwargs):
-                super().__init__(*args, **kwargs)
-                self.verbose_logging = verbose_logging
-                self.log_dir = log_dir
-                self.io_log_file = None
-                
-                # 创建输入输出日志文件
-                if self.log_dir:
-                    try:
-                        os.makedirs(self.log_dir, exist_ok=True)
-                        self.io_log_file = open(os.path.join(self.log_dir, 'io_logs.jsonl'), 'w', encoding='utf-8')
-                        print(f"输入输出日志将保存到: {os.path.join(self.log_dir, 'io_logs.jsonl')}")
-                    except Exception as e:
-                        print(f"警告: 无法创建输入输出日志文件: {e}")
-                        self.io_log_file = None
-                else:
-                    self.io_log_file = None
-            
-            def __del__(self):
-                """关闭日志文件"""
-                if hasattr(self, 'io_log_file') and self.io_log_file:
-                    try:
-                        self.io_log_file.close()
-                    except:
-                        pass
-            
-            def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
-                """计算损失（带数值稳定性检查）"""
-                # 移除actual_length字段（如果存在），避免传给模型
-                actual_lengths = inputs.pop('actual_length', None)
-                
-                outputs = model(**inputs)
-                logits = outputs.get("logits")
-                labels = inputs.get("labels")
-                input_ids = inputs.get("input_ids")
-                
-                # 检查并清理logits中的nan/inf
-                if logits is not None:
-                    has_nan = False
-                    has_inf = False
-                    
-                    # 只检查部分数据，提高效率
-                    if logits.numel() > 0:
-                        check_size = min(1000, logits.numel() // 2)
-                        if logits.numel() > check_size * 2:
-                            head_values = logits.view(-1)[:check_size]
-                            tail_values = logits.view(-1)[-check_size:]
-                            if torch.isnan(head_values).any() or torch.isnan(tail_values).any():
-                                has_nan = True
-                            if torch.isinf(head_values).any() or torch.isinf(tail_values).any():
-                                has_inf = True
-                        else:
-                            if torch.isnan(logits).any():
-                                has_nan = True
-                            if torch.isinf(logits).any():
-                                has_inf = True
-                    
-                    # 如果发现问题，进行清理
-                    if has_nan or has_inf:
-                        nan_count = torch.isnan(logits).sum().item()
-                        inf_count = torch.isinf(logits).sum().item()
-                        
-                        if nan_count > 0 or inf_count > 0:
-                            print(f"警告: Step {self.state.global_step} logits中有 {nan_count} 个nan, {inf_count} 个inf")
-                            logits = torch.where(
-                                torch.isnan(logits) | torch.isinf(logits),
-                                torch.tensor(0.0, device=logits.device, dtype=logits.dtype),
-                                logits
-                            )
-                            logits = torch.clamp(logits, min=-50.0, max=50.0)
-                
-                # 计算损失
-                if hasattr(outputs, 'loss') and outputs.loss is not None:
-                    loss = outputs.loss
-                elif labels is not None:
-                    valid_labels_count = (labels != -100).sum().item()
-                    
-                    if valid_labels_count == 0:
-                        print(f"错误: Step {self.state.global_step} 没有有效的labels")
-                        loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
-                    else:
-                        loss_fct = nn.CrossEntropyLoss(ignore_index=-100, reduction='mean')
-                        shift_logits = logits[..., :-1, :].contiguous()
-                        shift_labels = labels[..., 1:].contiguous()
-                        
-                        loss = loss_fct(
-                            shift_logits.view(-1, shift_logits.size(-1)),
-                            shift_labels.view(-1)
-                        )
-                else:
-                    loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
-                
-                # 检查损失值
-                if loss is not None and torch.is_tensor(loss):
-                    if loss.dim() > 0:
-                        loss = loss.mean()
-                    
-                    loss_value = loss.item()
-                    if torch.isnan(loss) or torch.isinf(loss):
-                        print(f"错误: Step {self.state.global_step} loss为nan/inf")
-                        loss = torch.tensor(2.0, device=logits.device, requires_grad=True)
-                        loss_value = 2.0
-                    elif loss_value > 1e6:
-                        print(f"警告: Step {self.state.global_step} loss过大 ({loss_value:.2f})")
-                        loss = torch.clamp(loss, max=100.0)
-                        loss_value = 100.0
-                
-                # 定期清理CUDA缓存
-                if self.state.global_step % 10 == 0:
-                    torch.cuda.empty_cache()
-                
-                if return_outputs:
-                    return loss, outputs
-                return loss
-        
         # 创建早停回调
         early_stopping = EarlyStoppingCallback(
             early_stopping_patience=early_stopping_patience,
             early_stopping_threshold=early_stopping_threshold
         )
         
-        # 设置日志目录
-        log_dir = os.path.join(self.output_dir, "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        
-        # 创建 Trainer
-        trainer = CustomTrainer(
+        # 创建 Trainer（使用统一的 CustomTrainerWithAnswerWeight）
+        trainer = CustomTrainerWithAnswerWeight(
             model=self.model,
             args=training_args,
             train_dataset=train_dataset,
@@ -724,8 +779,10 @@ class AblationTrainerWithDynamicPadding(AblationTrainer):
             data_collator=collate_fn,  # 使用动态padding的collate_fn
             processing_class=self.tokenizer,
             callbacks=[early_stopping] if val_dataset else [],
-            verbose_logging=True,
-            log_dir=log_dir,
+            tokenizer=self.tokenizer,
+            is_main_process=True,  # 单卡训练，总是主进程
+            rank=0,
+            debug_steps=3,
         )
         
         # 开始训练

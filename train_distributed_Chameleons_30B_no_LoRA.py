@@ -42,7 +42,7 @@ from torch.utils.data.distributed import DistributedSampler
 # 
 # ✅ 使用新的 data_loader.py - 只预测 continuation，不做数据扩充
 from data_loader import load_train_data, extract_training_samples, get_user_only_history, build_simple_training_prompt
-from train_with_dynamic_padding import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples
+from train_with_dynamic_padding import DynamicPaddingDataset, dynamic_padding_collate_fn, split_train_val, add_history_to_samples, CustomTrainerWithAnswerWeight
 from sample_per_user import sample_per_user  # 新增：用户采样
 from transformers import (
     AutoTokenizer,
@@ -694,7 +694,7 @@ def main():
                     )
                     logits = torch.clamp(logits, min=-50.0, max=50.0)
             
-            # 计算损失（对 [ANSWER] 和 [/ANSWER] token 增加权重）
+            # 计算损失（对 [ANSWER] 和 [/ANSWER] 标签本身增加权重 3，内容保持权重 1）
             if hasattr(outputs, 'loss') and outputs.loss is not None:
                 loss = outputs.loss
             elif labels is not None:
@@ -732,7 +732,8 @@ def main():
                     batch_size, seq_len = shift_labels.shape
                     loss_weights = torch.ones_like(shift_labels, dtype=torch.float32)
                     
-                    # 对 [ANSWER] 和 [/ANSWER] 的所有 token 增加权重（权重设为 3.0）
+                    # 对 [ANSWER] 和 [/ANSWER] 标签本身的所有 token 增加权重（权重设为 3.0）
+                    # 注意：标签之间的内容保持普通权重 1.0
                     if answer_start_token_ids:
                         for token_id in answer_start_token_ids:
                             loss_weights[shift_labels == token_id] = 3.0

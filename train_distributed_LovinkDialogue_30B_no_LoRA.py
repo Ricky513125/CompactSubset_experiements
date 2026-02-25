@@ -624,29 +624,8 @@ def build_simple_training_prompt(
         
         system_parts.append("\n".join(dialogue_parts))
     
-    # 4. 预测指令（中文提示）
-    if English_flag:
-        system_parts.append("\n预测用户的下一条消息：")
-        system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
-    elif Japanese_flag:
-        system_parts.append("\n预测用户的下一条消息：")
-        system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
-    else:
-        if task_text == "基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式":
-            system_parts.append("\n预测用户针对该问题的回复：")
-            system_parts.append("注意：请直接给出用户的回答，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
-        elif task_text and "MovieLens" in task_text:
-            system_parts.append("\n预测用户对该电影的评分：")
-            system_parts.append("注意：请直接给出用户的评分，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
-        elif task_text and "Reddit" in task_text:
-            system_parts.append("\n预测用户对该评论的回复：")
-            system_parts.append("注意：请直接给出用户的回复，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
-        elif task_text and "REALTALK" in task_text:
-            system_parts.append("\n预测用户的下一条消息：")
-            system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
-        else:
-            system_parts.append("\n预测用户的下一条消息：")
-            system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
+    system_parts.append("\n预测用户针对该问题的回复：")
+    system_parts.append("注意：请直接给出用户针对该问题的回复，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
     
     # 组合成 system message
     system_content = "\n\n".join(system_parts)
@@ -1878,7 +1857,7 @@ def main():
                     )
                     logits = torch.clamp(logits, min=-50.0, max=50.0)
             
-            # 计算损失（对 [ANSWER] 和 [/ANSWER] token 增加权重）
+            # 计算损失（对 [ANSWER] 和 [/ANSWER] 标签本身增加权重 3，内容保持权重 1）
             if hasattr(outputs, 'loss') and outputs.loss is not None:
                 loss = outputs.loss
             elif labels is not None:
@@ -1916,7 +1895,8 @@ def main():
                     batch_size, seq_len = shift_labels.shape
                     loss_weights = torch.ones_like(shift_labels, dtype=torch.float32)
                     
-                    # 对 [ANSWER] 和 [/ANSWER] 的所有 token 增加权重（权重设为 3.0）
+                    # 对 [ANSWER] 和 [/ANSWER] 标签本身的所有 token 增加权重（权重设为 3.0）
+                    # 注意：标签之间的内容保持普通权重 1.0
                     if answer_start_token_ids:
                         for token_id in answer_start_token_ids:
                             loss_weights[shift_labels == token_id] = 3.0

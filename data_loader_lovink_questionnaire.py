@@ -439,39 +439,90 @@ def build_simple_training_prompt(
     messages = []
     system_parts = []
     
-    # 1. USER_HASH 部分
+    # 0. USER_HASH 部分（如果提供）
     if user_hash:
         system_parts.append(f"[USER_HASH={user_hash}]")
     
-    # 2. TASK 部分
+    # 1. USER_PROFILE 部分 - 与推理文件格式一致
+    if use_profile and user_profile:
+        profile_tags = []
+        
+        # 基础信息标签
+        if 'name' in user_profile and user_profile['name']:
+            profile_tags.append(f"[USER_NAME={user_profile['name']}]")
+        if 'age' in user_profile and user_profile['age']:
+            profile_tags.append(f"[USER_AGE={user_profile['age']}]")
+        if 'gender' in user_profile and user_profile['gender']:
+            profile_tags.append(f"[USER_GENDER={user_profile['gender']}]")
+        
+        # 心理维度标签（dimensions）- 支持扁平化和嵌套格式
+        if 'dimensions' in user_profile and isinstance(user_profile['dimensions'], dict):
+            dims = user_profile['dimensions']
+            
+            # 检查是否是扁平化格式（包含 "." 的键）
+            is_flat = any('.' in str(k) for k in dims.keys())
+            
+            if is_flat:
+                # 扁平化格式：直接遍历
+                for dim_key, dim_score in dims.items():
+                    if dim_score is not None:
+                        tag_name = f"DIM_{dim_key.upper().replace('.', '_')}"
+                        profile_tags.append(f"[{tag_name}={dim_score}]")
+            else:
+                # 嵌套格式：需要遍历两层
+                for scale_name, scale_data in dims.items():
+                    if isinstance(scale_data, dict) and 'dimensions' in scale_data:
+                        subdims = scale_data['dimensions']
+                        for subdim_name, subdim_data in subdims.items():
+                            if isinstance(subdim_data, dict) and 'score' in subdim_data:
+                                score = subdim_data['score']
+                                tag_name = f"DIM_{scale_name.upper()}_{subdim_name.upper()}"
+                                profile_tags.append(f"[{tag_name}={score}]")
+        
+        # 其他 profile 字段
+        excluded_keys = {'name', 'age', 'gender', 'dimensions', 'unstructured'}
+        for key, value in user_profile.items():
+            if key not in excluded_keys and value:
+                tag_name = f"USER_{key.upper()}"
+                profile_tags.append(f"[{tag_name}={value}]")
+        
+        if profile_tags:
+            system_parts.append("[USER_PROFILE]")
+            system_parts.extend(profile_tags)
+            system_parts.append("")
+    
+    # 2. TASK 部分 - 与推理文件一致
     if task_description:
         system_parts.append(f"[TASK]\n{task_description}")
     else:
         system_parts.append("[TASK]\n基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式")
+    system_parts.append("")
     
-    # 3. HISTORY 部分（包含问题+回答的完整格式）
+    # 3. HISTORY 部分 - 与推理文件格式一致
     if use_history and history and len(history) > 0:
         history_parts = ["[HISTORY]"]
+        # 限制历史条目数量，避免过长
         max_history_items = 15
         history_to_use = history[:max_history_items] if len(history) > max_history_items else history
         
         for i, item in enumerate(history_to_use, 1):
+            # 支持多种格式的历史
             if isinstance(item, str):
-                # ✅ 保留完整的"问题：XXX\n回答：YYY"格式
-                # 如果已经是格式化的，直接使用
-                if "问题：" in item and "回答：" in item:
-                    history_parts.append(f"{i}. {item}")
-                else:
-                    # 如果只有答案，也保留
-                    history_parts.append(f"{i}. {item}")
+                content = item
+            elif isinstance(item, dict):
+                content = item.get('next_question', '') or item.get('content', '') or item.get('continuation', '')
             else:
                 content = str(item)
+            
+            if content:
+                # 截断过长的历史项
                 if len(content) > 200:
                     content = content[:197] + "..."
                 history_parts.append(f"{i}. {content}")
         
         if len(history_parts) > 1:
-            system_parts.append("\n".join(history_parts))
+            system_parts.extend(history_parts)
+            system_parts.append("")
     
     # 4. 当前问题（从 context 中提取并显示）
     # 对于问卷数据，context 的最后一个项通常是当前要回答的问题
@@ -494,14 +545,20 @@ def build_simple_training_prompt(
             current_question = context[0].get('content', '')
         
         if current_question:
+            # 如果问题太长，截断
+            if len(current_question) > 500:
+                current_question = current_question[:497] + "..."
             system_parts.append(f"[CURRENT_QUESTION]\n{current_question}")
+            system_parts.append("")
     
-    # 5. 预测指令（与训练时保持一致，使用 [ANSWER] 标签）
-    system_parts.append("\n预测用户针对该问题的回复：")
-    system_parts.append("注意：请直接给出用户的回答，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
+    # 5. 预测指令 - 与推理文件一致（中文）
+    system_parts.append("预测用户针对该问题的回复：")
+    
+    # 6. 添加输出要求说明（与推理文件保持一致，使用 [ANSWER] 标签，中文）
+    system_parts.append("注意：请直接给出用户针对该问题的回复，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
     
     # 组合成 system message
-    system_content = "\n\n".join(system_parts)
+    system_content = "\n".join(system_parts)
     messages.append({"role": "system", "content": system_content})
     
     # target_answer 用 [ANSWER] 和 [/ANSWER] 包裹 next_question（与训练时保持一致）

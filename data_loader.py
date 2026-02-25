@@ -703,7 +703,7 @@ def build_simple_training_prompt(
         English_flag = True 
         task_text = "Given the historical dialogue of a character in a movie, model the character's speaking style and behavioral patterns, and predict the next utterance the user would produce."
     elif task_text == "基于用户在 Reddit 上的历史对话数据，模拟该用户的对话风格和行为模式":
-        # English_flag = True 
+        English_flag = True 
         task_text = "Given the historical dialogue of a user on Reddit, model the user's speaking style and behavioral patterns, and predict the next utterance the user would produce."
     elif task_text == "基于用户在 RealPersonaChat 数据集中的历史对话数据，模拟该用户的对话行为模式":
         Japanese_flag = True 
@@ -776,7 +776,17 @@ def build_simple_training_prompt(
             # 构建临时 system message 测试长度
             temp_system_parts = system_parts.copy()
             temp_system_parts.append(build_dialogue_section(test_context))
-            temp_system_parts.append("\nPredict the user's next message:")
+            # 根据数据集选择正确的预测指令（用于长度估算）
+            if "character in a movie" in task_text:
+                temp_system_parts.append("\nContinue the dialogue as the character:")
+            elif "Reddit" in task_text:
+                temp_system_parts.append("\nPredict the assistant's next message:")
+            elif "REALTALK" in task_text:
+                temp_system_parts.append("\nPredict the user's next message:")
+            elif "Lovink 对话" in task_text:
+                temp_system_parts.append("\n预测下一条回复：")
+            else:
+                temp_system_parts.append("\nPredict the user's next message:")
             temp_system_content = "\n\n".join(temp_system_parts)
             
             # 构建临时 messages 测试 tokenization
@@ -827,26 +837,42 @@ def build_simple_training_prompt(
         
         system_parts.append("\n".join(dialogue_parts))
     
-    # 4. 预测指令
+    # 4. 预测指令（与推理文件格式保持一致）
     if English_flag:
-        system_parts.append("\nPredict the user's next message:")
-        system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
+        # Chameleons: 使用 "Continue the dialogue as the character:" 格式
+        if "character in a movie" in task_text:
+            system_parts.append("\nContinue the dialogue as the character:")
+            system_parts.append("")
+            system_parts.append("Note: Do not include any thinking process or explanation. Output only the character's response between [ANSWER] and [/ANSWER] tags.")
+        # PERSONA_Bench: 使用 "Predict the assistant's next message:" 格式
+        elif "Reddit" in task_text:
+            system_parts.append("\nPredict the assistant's next message:")
+            system_parts.append("Note: Do not include any thinking process, explanation, or instructions. Only output the assistant's actual next message between [ANSWER] and [/ANSWER] tags.")
+            system_parts.append("Example format: [ANSWER]The assistant's actual response here[/ANSWER]")
+        # REALTALK: 使用 "Predict the user's next message:" 格式
+        elif "REALTALK" in task_text:
+            system_parts.append("\nPredict the user's next message:")
+            system_parts.append("")
+            system_parts.append("Note: Do not include any thinking process or explanation. Output only the user's next message between [ANSWER] and [/ANSWER] tags.")
+        else:
+            system_parts.append("\nPredict the user's next message:")
+            system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
     elif Japanese_flag:
+        # RealPersonaChat: 使用日语格式
         system_parts.append("\nユーザーの次のメッセージを予測する：")
-        system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
+        system_parts.append("")
+        system_parts.append("注意：思考過程や説明は不要です。ユーザーの次のメッセージのみを [ANSWER] と [/ANSWER] の間で出力してください。")
     else:
         if task_text == "基于用户在 Lovink 问卷中的回答数据，模拟该用户的回答风格和行为模式":
             system_parts.append("\n预测用户针对该问题的回复：")
-            system_parts.append("注意：请直接给出用户的回答，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
+            system_parts.append("注意：请直接给出用户针对该问题的回复，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
         elif task_text and "MovieLens" in task_text:
             system_parts.append("\n预测用户对该电影的评分：")
             system_parts.append("注意：请直接给出用户的评分，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
-        elif task_text and "Reddit" in task_text:
-            system_parts.append("\nPredict the user's response to the comment:")
-            system_parts.append("注意：请直接给出用户的回复，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
-        elif task_text and "REALTALK" in task_text:
-            system_parts.append("\nPredict the user's next message:")
-            system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
+        elif task_text and "Lovink 对话" in task_text:
+            # LovinkDialogue: 使用 "预测下一条回复：" 格式
+            system_parts.append("\n预测下一条回复：")
+            system_parts.append("注意：请直接给出下一条回复，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")
         else:
             system_parts.append("\n预测用户的下一条消息：")
             system_parts.append("注意：请直接给出用户的下一条消息，用 [ANSWER] 和 [/ANSWER] 标签包裹答案内容，不需要解释或思考过程。")

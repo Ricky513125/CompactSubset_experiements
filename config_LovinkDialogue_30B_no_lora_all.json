@@ -9,8 +9,8 @@
     "train_path": "/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue/train.json"
   },
   "training": {
-    "batch_size": 1,
-    "eval_batch_size": 1,
+    "batch_size": 8,
+    "eval_batch_size": 8,
     "gradient_accumulation_steps": 2,
     "learning_rate": 1e-05,
     "weight_decay": 0.1,
