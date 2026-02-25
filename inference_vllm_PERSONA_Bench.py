@@ -824,21 +824,22 @@ def run_inference_vllm(
             if sample_idx not in data_item_samples[key]:
                 data_item_samples[key][sample_idx] = None
     
-    # 第二轮：对清洗后为空的样本进行重试（调高 temperature）
+    # 第二轮：对清洗后为空的样本进行重试（调高 temperature，批量处理）
     print(f"\n处理空结果：对 {empty_count} 个空样本进行重试...")
     max_retries = 3
     retry_temperature_increment = 0.3
     
-    for key, samples_dict in data_item_samples.items():
-        test_sample_idx, collection_idx, data_item_idx = key
-        prompt = data_item_prompts[key]
-        metadata = data_item_metadata[key]
+    # 按轮次重试：每轮只对仍然失败的样本进行重试
+    for retry_attempt in range(max_retries):
+        # 收集当前轮次需要重试的样本
+        retry_items = []  # [(key, sample_idx, prompt, retry_params), ...]
         
-        # 对每个为空的 sample_idx 进行重试
-        for sample_idx in range(num_samples):
-            if sample_idx in samples_dict and samples_dict[sample_idx] is None:
-                # 重试最多 3 次，每次调高 temperature
-                for retry_attempt in range(max_retries):
+        for key, samples_dict in data_item_samples.items():
+            prompt = data_item_prompts[key]
+            
+            # 对每个仍然为空的 sample_idx 进行重试
+            for sample_idx in range(num_samples):
+                if sample_idx in samples_dict and samples_dict[sample_idx] is None:
                     retry_temperature = enhanced_temperature + (retry_attempt + 1) * retry_temperature_increment
                     retry_seed = seed + sample_idx + (retry_attempt + 1) * 1000
                     
@@ -852,30 +853,69 @@ def run_inference_vllm(
                         skip_special_tokens=True,
                     )
                     
-                    # 重新生成
-                    retry_outputs = llm.generate([prompt], [retry_params], use_tqdm=False)
-                    retry_text = retry_outputs[0].outputs[0].text
-                    
-                    # 清洗重试生成的文本
-                    retry_cleaned = clean_generated_text(retry_text, max_length=300)
-                    
-                    if retry_cleaned and len(retry_cleaned) >= 3:
-                        # 重试成功，保存结果
-                        samples_dict[sample_idx] = retry_cleaned
-                        retry_count += 1
-                        processing_log_content.append(f"重试成功: Data Item key={key}, sample_idx={sample_idx}, retry_attempt={retry_attempt+1}")
-                        processing_log_content.append(f"  temperature={retry_temperature}, seed={retry_seed}")
-                        processing_log_content.append(f"  【重试原始输出】{retry_text[:200]}...")
-                        processing_log_content.append(f"  【重试清洗后】{retry_cleaned}")
-                        processing_log_content.append("")
-                        break
-                    
-                    # 记录重试失败
-                    processing_log_content.append(f"重试失败: Data Item key={key}, sample_idx={sample_idx}, retry_attempt={retry_attempt+1}")
-                    processing_log_content.append(f"  temperature={retry_temperature}, seed={retry_seed}")
+                    retry_items.append((key, sample_idx, prompt, retry_params))
+        
+        if not retry_items:
+            print(f"  所有样本已成功，停止重试")
+            break
+        
+        print(f"  第 {retry_attempt + 1} 轮重试: {len(retry_items)} 个样本 (temperature={enhanced_temperature + (retry_attempt + 1) * retry_temperature_increment:.2f})...")
+        
+        # 分批处理，每批最多1000个（避免内存问题）
+        batch_size = 1000
+        total_batches = (len(retry_items) + batch_size - 1) // batch_size
+        
+        for batch_idx in range(total_batches):
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, len(retry_items))
+            batch_items = retry_items[start_idx:end_idx]
+            
+            if total_batches > 1:
+                print(f"    处理批次 {batch_idx + 1}/{total_batches} ({len(batch_items)} 个样本)...")
+            
+            # 提取prompts和params
+            batch_prompts = [item[2] for item in batch_items]
+            batch_params = [item[3] for item in batch_items]
+            
+            # 批量生成
+            batch_outputs = llm.generate(batch_prompts, batch_params, use_tqdm=(total_batches == 1))
+            
+            # 处理结果
+            for item, output in zip(batch_items, batch_outputs):
+                key, sample_idx, prompt, retry_params = item
+                retry_text = output.outputs[0].text
+                
+                # 清洗重试生成的文本
+                retry_cleaned = clean_generated_text(retry_text, max_length=300)
+                
+                # 检查是否已经成功（可能在其他批次中已经成功）
+                samples_dict = data_item_samples[key]
+                if sample_idx in samples_dict and samples_dict[sample_idx] is not None:
+                    continue  # 已经成功，跳过
+                
+                if retry_cleaned and len(retry_cleaned) >= 3:
+                    # 重试成功，保存结果
+                    samples_dict[sample_idx] = retry_cleaned
+                    retry_count += 1
+                    processing_log_content.append(f"重试成功: Data Item key={key}, sample_idx={sample_idx}, retry_attempt={retry_attempt+1}")
+                    processing_log_content.append(f"  temperature={retry_params.temperature}, seed={retry_params.seed}")
                     processing_log_content.append(f"  【重试原始输出】{retry_text[:200]}...")
-                    processing_log_content.append(f"  【重试清洗后】[仍为空]")
+                    processing_log_content.append(f"  【重试清洗后】{retry_cleaned}")
                     processing_log_content.append("")
+                else:
+                    # 记录重试失败（只在最后一次尝试时记录，避免日志过多）
+                    if retry_attempt == max_retries - 1:
+                        processing_log_content.append(f"重试失败: Data Item key={key}, sample_idx={sample_idx}, retry_attempt={retry_attempt+1}")
+                        processing_log_content.append(f"  temperature={retry_params.temperature}, seed={retry_params.seed}")
+                        processing_log_content.append(f"  【重试原始输出】{retry_text[:200]}...")
+                        processing_log_content.append(f"  【重试清洗后】[仍为空]")
+                        processing_log_content.append("")
+        
+        # 统计当前轮次后的成功数
+        current_success = sum(1 for samples_dict in data_item_samples.values() 
+                            for sample_idx in range(num_samples) 
+                            if sample_idx in samples_dict and samples_dict[sample_idx] is not None)
+        print(f"  第 {retry_attempt + 1} 轮完成，当前成功样本数: {current_success}")
     
     if retry_count > 0:
         print(f"✓ 重试成功: {retry_count} 个样本通过重试获得有效回答")

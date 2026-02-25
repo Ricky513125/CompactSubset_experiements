@@ -6,12 +6,12 @@
     "checkpoint_dir": "/mnt/parallel/checkpoints"
   },
   "data": {
-    "train_path": "/mnt/parallel/GIDigitalTwinBench/RealSelf/Chameleons/train_di3.json"
+    "train_path": "/mnt/parallel/GIDigitalTwinBench/RealSelf/Chameleons/train.json"
   },
   "training": {
-    "batch_size": 4,
-    "eval_batch_size": 4,
-    "gradient_accumulation_steps": 4,
+    "batch_size": 16,
+    "eval_batch_size": 16,
+    "gradient_accumulation_steps": 2,
     "learning_rate": 1e-5,
     "weight_decay": 0.01,
     "warmup_steps": 100,

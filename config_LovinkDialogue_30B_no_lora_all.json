@@ -6,19 +6,19 @@
     "checkpoint_dir": "/mnt/parallel/checkpoints"
   },
   "data": {
-    "train_path": "/mnt/parallel/GIDigitalTwinBench/RealSelf/Chameleons/train_di3.json"
+    "train_path": "/mnt/parallel/GIDigitalTwinBench/IdealSelf/LovinkDialogue/train.json"
   },
   "training": {
-    "batch_size": 4,
-    "eval_batch_size": 4,
-    "gradient_accumulation_steps": 4,
-    "learning_rate": 1e-5,
-    "weight_decay": 0.01,
+    "batch_size": 1,
+    "eval_batch_size": 1,
+    "gradient_accumulation_steps": 2,
+    "learning_rate": 1e-05,
+    "weight_decay": 0.1,
     "warmup_steps": 100,
-    "max_length": 1024,
+    "max_length": 16384,
     "max_context_turns": 15,
     "logging_steps": 10,
-    "save_steps": 200,
+    "save_steps": 500,
     "save_total_limit": 3
   },
   "ablation_configs": {

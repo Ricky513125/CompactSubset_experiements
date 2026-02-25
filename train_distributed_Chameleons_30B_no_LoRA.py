@@ -54,14 +54,6 @@ from transformers import (
 from typing import List, Dict, Any, Optional
 import torch.nn as nn
 
-# LoRA 支持
-try:
-    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, TaskType
-    PEFT_AVAILABLE = True
-except ImportError:
-    PEFT_AVAILABLE = False
-    print("警告: peft 库未安装，LoRA 功能不可用。安装: pip install peft")
-
 
 def check_flash_attention_support():
     """检查系统是否支持 FlashAttention 2"""
@@ -121,7 +113,7 @@ def main():
                        help='消融实验配置')
     parser.add_argument('--val_ratio', type=float, default=0.1,
                        help='验证集比例')
-    parser.add_argument('--max_epochs', type=int, default=50,
+    parser.add_argument('--max_epochs', type=int, default=3,
                        help='最大训练轮次（默认：50）')
     parser.add_argument('--early_stopping_patience', type=int, default=3,
                        help='早停耐心值（默认：3）')
@@ -360,42 +352,6 @@ def main():
         if is_main_process:
             print("✓ 梯度检查点已启用")
     
-    # LoRA 配置（如果配置文件中启用）
-    use_lora = model_config.get('use_lora', False)
-    if use_lora:
-        if not PEFT_AVAILABLE:
-            raise ImportError("LoRA 已启用但 peft 库未安装。请运行: pip install peft")
-        
-        lora_config_dict = model_config.get('lora_config', {})
-        if is_main_process:
-            print("\n" + "="*80)
-            print("⚡ LoRA 配置:")
-            print(f"   - rank (r): {lora_config_dict.get('r', 64)}")
-            print(f"   - alpha: {lora_config_dict.get('lora_alpha', 128)}")
-            print(f"   - dropout: {lora_config_dict.get('lora_dropout', 0.05)}")
-            print(f"   - target modules: {lora_config_dict.get('target_modules', [])}")
-            print("="*80 + "\n")
-        
-        # 创建 LoRA 配置
-        lora_config = LoraConfig(
-            r=lora_config_dict.get('r', 64),
-            lora_alpha=lora_config_dict.get('lora_alpha', 128),
-            lora_dropout=lora_config_dict.get('lora_dropout', 0.05),
-            target_modules=lora_config_dict.get('target_modules', [
-                "q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj"
-            ]),
-            bias=lora_config_dict.get('bias', 'none'),
-            task_type=TaskType.CAUSAL_LM,
-        )
-        
-        # 应用 LoRA
-        model = get_peft_model(model, lora_config)
-        
-        if is_main_process:
-            print("✓ LoRA 已应用")
-            model.print_trainable_parameters()
-    
     # 将模型移到对应的GPU
     model = model.to(local_rank)
     
@@ -423,7 +379,7 @@ def main():
     train_dataset = DynamicPaddingDataset(
         samples=train_samples,
         tokenizer=tokenizer,
-        max_length=train_config.get('max_length', 4096),
+        max_length=train_config.get('max_length', 1024),
         use_profile=use_profile,
         use_history=use_history,
         use_context=use_context,
@@ -454,7 +410,7 @@ def main():
     # 在主进程中打印几个样本示例（用于调试和验证）
     if is_main_process and training_log_path:
         print("\n" + "=" * 80)
-        print("📝 样本示例（前5个训练样本）")
+        print(" 样本示例（前5个训练样本）")
         print("=" * 80)
         
         # 同时写入日志文件
@@ -558,10 +514,10 @@ def main():
         print(f"\n✓ 样本详情已保存到: {training_log_path}")
         print("=" * 80)
     
-    # 计算训练步数
-    steps_per_epoch = len(train_dataset) // (world_size * train_config.get('batch_size', 2) * train_config.get('gradient_accumulation_steps', 8))
+    # 计算训练步数（使用新的batch配置：8 * 2 * 8GPUs = 128）
+    steps_per_epoch = len(train_dataset) // (world_size * 8 * 2)
     eval_steps_value = max(1, steps_per_epoch // 2) if val_dataset else None
-    save_steps_value = train_config.get('save_steps', 500)
+    save_steps_value = max(50, steps_per_epoch // 4)  # 每个epoch保存4次
     
     if val_dataset and eval_steps_value and save_steps_value % eval_steps_value != 0:
         save_steps_value = ((save_steps_value + eval_steps_value - 1) // eval_steps_value) * eval_steps_value
@@ -571,7 +527,7 @@ def main():
     # 训练参数（分布式 + FlashAttention 2 + 动态Padding）
     training_args = TrainingArguments(
         output_dir=output_dir,
-        num_train_epochs=args.max_epochs,
+        num_train_epochs=3,
         per_device_train_batch_size=train_config.get('batch_size', 2),
         per_device_eval_batch_size=train_config.get('eval_batch_size', 2),
         gradient_accumulation_steps=train_config.get('gradient_accumulation_steps', 8),
@@ -589,7 +545,7 @@ def main():
         fp16=False,
         bf16=True,  # FlashAttention 2 与 BF16 配合效果更好
         dataloader_pin_memory=False,
-        gradient_checkpointing=True,
+        gradient_checkpointing=True,  # 必开！节省显存
         optim="adamw_torch",
         max_grad_norm=0.5,
         report_to="wandb" if args.wandb_project else "none",
@@ -600,7 +556,7 @@ def main():
         dataloader_num_workers=2,
         save_on_each_node=False,
         logging_first_step=True,
-        # DeepSpeed配置（可选）
+        # DeepSpeed配置
         deepspeed=args.deepspeed,
     )
     

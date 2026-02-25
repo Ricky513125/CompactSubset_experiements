@@ -43,6 +43,13 @@ from typing import List, Dict, Any, Optional, Tuple
 import torch.nn as nn
 from datetime import datetime
 
+# LoRA 支持
+try:
+    from peft import LoraConfig, get_peft_model, TaskType
+    PEFT_AVAILABLE = True
+except ImportError:
+    PEFT_AVAILABLE = False
+
 
 # ================================
 # 数据加载函数
@@ -70,26 +77,26 @@ def load_movie_review_data(file_path: str) -> List[Dict[str, Any]]:
 
 def extract_movie_review_samples(
     raw_data: List[Dict[str, Any]], 
-    one_sample_per_user: bool = False,
+    max_samples_per_user: Optional[int] = None,
     debug: bool = False
 ) -> List[Dict[str, Any]]:
     """
     将原始影评数据转换为训练样本格式
     
     两种模式：
-    1. one_sample_per_user=False（默认）：每条影评转换为一个样本
+    1. max_samples_per_user=None（默认）：每条影评转换为一个样本
        - 用户有100条影评 → 生成100个样本
        - 样本1: [] → r1, 样本2: [r1] → r2, ..., 样本100: [r1..r99] → r100
     
-    2. one_sample_per_user=True：每个用户只生成2个样本（最后2条）
-       - 用户有100条影评 → 生成2个样本
+    2. max_samples_per_user=N：每个用户只生成最后N个样本
+       - 用户有100条影评，max_samples_per_user=2 → 生成2个样本
        - 样本1: [r1..r98] → r99（用前98条预测第99条）
        - 样本2: [r1..r99] → r100（用前99条预测第100条）
        - **大幅减少训练数据量，同时最大化历史信息利用**
     
     Args:
         raw_data: 原始数据
-        one_sample_per_user: 是否每个用户只生成最后2个样本（默认False）
+        max_samples_per_user: 每个用户最多生成的样本数（None表示全部，默认None）
         debug: 是否输出调试信息
         
     Returns:
@@ -115,28 +122,23 @@ def extract_movie_review_samples(
                 print(f"任务描述: {task_desc}")
                 print(f"影评总数: {len(reviews)}")
             
-            if one_sample_per_user:
-                # 🔥 新模式：每个用户选择最后2条作为预测目标
-                # 使用前 n-2 条作为历史，预测最后 2 条
-                if len(reviews) < 3:
+            if max_samples_per_user is not None and max_samples_per_user > 0:
+                # 🔥 新模式：每个用户选择最后N条作为预测目标
+                # 使用前 n-N 条作为历史，预测最后 N 条
+                if len(reviews) < max_samples_per_user + 1:
                     if debug:
-                        print(f"  ⚠️ 跳过该用户（影评数 < 3）")
+                        print(f"  ⚠️ 跳过该用户（影评数 < {max_samples_per_user + 1}）")
                     continue
                 
-                # 前 n-2 条作为共享历史
-                history_reviews = reviews[:-2]
-                # 最后2条作为预测目标
-                last_two_reviews = reviews[-2:]
+                # 前 n-N 条作为共享历史
+                history_reviews = reviews[:-max_samples_per_user]
+                # 最后N条作为预测目标
+                last_n_reviews = reviews[-max_samples_per_user:]
                 
-                # 为最后2条影评分别创建样本，但都使用相同的历史
-                for idx, target_review in enumerate(last_two_reviews):
-                    # 对于第二个样本（reviews[-1]），可以额外包含reviews[-2]作为历史
-                    if idx == 0:
-                        # 第一个样本：只用前 n-2 条作为历史
-                        current_history = history_reviews
-                    else:
-                        # 第二个样本：用前 n-2 条 + reviews[-2] 作为历史
-                        current_history = history_reviews + [last_two_reviews[0]]
+                # 为最后N条影评分别创建样本，使用累积的历史
+                for idx, target_review in enumerate(last_n_reviews):
+                    # 历史包括：前 n-N 条 + 当前目标之前的所有最后N条中的影评
+                    current_history = history_reviews + last_n_reviews[:idx]
                     
                     sample = {
                         'user_profile': user_profile,
@@ -166,14 +168,14 @@ def extract_movie_review_samples(
                         # 元数据
                         'total_reviews': len(reviews),
                         'history_count': len(current_history),
-                        'target_index': len(reviews) - 2 + idx,  # 倒数第2个或最后1个
+                        'target_index': len(reviews) - max_samples_per_user + idx,
                         'raw_review': target_review
                     }
                     
                     all_samples.append(sample)
                 
                 if debug:
-                    print(f"  生成2个样本: {len(history_reviews)}条共享历史 → 预测最后2条")
+                    print(f"  生成{max_samples_per_user}个样本: {len(history_reviews)}条共享历史 → 预测最后{max_samples_per_user}条")
             
             else:
                 # 原模式：为每条影评创建一个训练样本
@@ -523,6 +525,10 @@ def main():
     # 数据相关
     parser.add_argument('--data_file', type=str, default=None, help='影评数据JSON文件路径（覆盖配置文件）')
     parser.add_argument('--val_ratio', type=float, default=None, help='验证集比例（覆盖配置文件）')
+    parser.add_argument('--max_samples_per_user', type=int, default=None, 
+                       help='每个用户最多生成的样本数（None表示全部，默认从配置文件读取）')
+    parser.add_argument('--one_sample_per_user', action='store_true',
+                       help='[已废弃] 使用 --max_samples_per_user=2 替代')
     
     # 输出目录
     parser.add_argument('--output_dir', type=str, default=None, help='模型输出目录')
@@ -535,10 +541,6 @@ def main():
     # DeepSpeed
     parser.add_argument('--deepspeed', type=str, default=None, help='DeepSpeed配置文件路径')
     parser.add_argument('--disable_flash_attn', action='store_true', help='禁用FlashAttention 2')
-    
-    # 采样参数
-    parser.add_argument('--one_sample_per_user', action='store_true',
-                       help='每个用户只生成1个样本（用前n-1条历史预测第n条）')
     
     # W&B
     parser.add_argument('--wandb_project', type=str, default='MovieReview', help='Weights & Biases项目名称')
@@ -584,8 +586,21 @@ def main():
         print(f"World Size: {world_size}, Rank: {rank}, Local Rank: {local_rank}")
         print(f"消融实验: {config_name}")
         print(f"使用配置: Profile={use_profile}, History={use_history}")
+        # 处理 max_samples_per_user
+        max_samples = args.max_samples_per_user
+        if max_samples is None:
+            # 从配置文件读取
+            max_samples = config.get('training', {}).get('max_samples_per_user', None)
+        # 兼容旧的 one_sample_per_user 参数
         if args.one_sample_per_user:
-            print(f"采样模式: 每用户一个样本")
+            max_samples = 2
+            if is_main_process:
+                print(f"⚠️  --one_sample_per_user 已废弃，请使用 --max_samples_per_user=2")
+        
+        if max_samples is not None:
+            print(f"采样模式: 每用户最多 {max_samples} 个样本")
+        else:
+            print(f"采样模式: 每条影评一个样本（全部）")
         if args.deepspeed:
             print(f"DeepSpeed: {args.deepspeed}")
         print("=" * 80)
@@ -619,9 +634,21 @@ def main():
     
     data_file = args.data_file if args.data_file else config['data']['train_path']
     raw_data = load_movie_review_data(data_file)
+    
+    # 确定 max_samples_per_user
+    max_samples = args.max_samples_per_user
+    if max_samples is None:
+        # 从配置文件读取
+        max_samples = config.get('training', {}).get('max_samples_per_user', None)
+    # 兼容旧的 one_sample_per_user 参数
+    if args.one_sample_per_user:
+        max_samples = 2
+        if is_main_process:
+            print(f"⚠️  --one_sample_per_user 已废弃，请使用 --max_samples_per_user=2")
+    
     all_samples = extract_movie_review_samples(
         raw_data, 
-        one_sample_per_user=args.one_sample_per_user,
+        max_samples_per_user=max_samples,
         debug=is_main_process
     )
     
@@ -678,8 +705,9 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # 获取训练配置
+    # 获取训练配置和模型配置
     train_config = config.get('training', {})
+    model_config = config.get('model', {})
     
     # 加载模型
     model_kwargs = {
@@ -693,7 +721,10 @@ def main():
     try:
         model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
         if is_main_process:
-            print(f"✓ 模型已加载")
+            if use_flash_attn:
+                print("✓ 模型已加载（FlashAttention 2）")
+            else:
+                print("✓ 模型已加载（标准Attention）")
     except Exception as e:
         if is_main_process:
             print(f"加载失败: {e}")
@@ -707,6 +738,42 @@ def main():
         model.gradient_checkpointing_enable()
         if is_main_process:
             print("✓ 梯度检查点已启用")
+    
+    # LoRA 配置（如果配置文件中启用）
+    use_lora = model_config.get('use_lora', False)
+    if use_lora:
+        if not PEFT_AVAILABLE:
+            raise ImportError("LoRA 已启用但 peft 库未安装。请运行: pip install peft")
+        
+        lora_config_dict = model_config.get('lora_config', {})
+        if is_main_process:
+            print("\n" + "="*80)
+            print("⚡ LoRA 配置:")
+            print(f"   - rank (r): {lora_config_dict.get('r', 64)}")
+            print(f"   - alpha: {lora_config_dict.get('lora_alpha', 128)}")
+            print(f"   - dropout: {lora_config_dict.get('lora_dropout', 0.05)}")
+            print(f"   - target modules: {lora_config_dict.get('target_modules', [])}")
+            print("="*80 + "\n")
+        
+        # 创建 LoRA 配置
+        lora_config = LoraConfig(
+            r=lora_config_dict.get('r', 64),
+            lora_alpha=lora_config_dict.get('lora_alpha', 128),
+            lora_dropout=lora_config_dict.get('lora_dropout', 0.05),
+            target_modules=lora_config_dict.get('target_modules', [
+                "q_proj", "k_proj", "v_proj", "o_proj",
+                "gate_proj", "up_proj", "down_proj"
+            ]),
+            bias=lora_config_dict.get('bias', 'none'),
+            task_type=TaskType.CAUSAL_LM,
+        )
+        
+        # 应用 LoRA
+        model = get_peft_model(model, lora_config)
+        
+        if is_main_process:
+            print("✓ LoRA 已应用")
+            model.print_trainable_parameters()
     
     model = model.to(local_rank)
     
@@ -810,7 +877,7 @@ def main():
         local_rank=local_rank,
         ddp_find_unused_parameters=False,
         ddp_backend="nccl",
-        dataloader_num_workers=2,
+        dataloader_num_workers=train_config.get('dataloader_num_workers', 4),
         save_on_each_node=False,
         logging_first_step=True,
         deepspeed=args.deepspeed,
@@ -959,7 +1026,8 @@ def main():
             'config_name': config_name,
             'use_profile': use_profile,
             'use_history': use_history,
-            'one_sample_per_user': args.one_sample_per_user,
+            'max_samples_per_user': max_samples,
+            'one_sample_per_user': args.one_sample_per_user,  # 保留以兼容
             'train_samples': len(train_samples),
             'val_samples': len(val_samples),
             'test_samples': len(test_samples),
